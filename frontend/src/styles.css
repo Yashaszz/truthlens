@@ -80,7 +80,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 
 /* ---------- masthead ---------- */
 .masthead { border-bottom: 3px double var(--ink); background: var(--paper); position: sticky; top: 0; z-index: 30; }
-.masthead-in { max-width: 1240px; margin: 0 auto; padding: 14px 24px 10px; display: flex; align-items: center; gap: 22px; }
+.masthead-in { max-width: 1600px; margin: 0 auto; padding: 14px clamp(16px, 3vw, 48px) 10px; display: flex; align-items: center; gap: 22px; }
 .wordmark { display: flex; align-items: baseline; gap: 12px; text-decoration: none; color: var(--ink); }
 .wordmark b { font: 700 25px/1 var(--serif); letter-spacing: -0.02em; }
 .wordmark span { font-size: 12px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
@@ -93,7 +93,7 @@ h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.01e
 .iconbtn { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--rule); border-radius: 4px; background: var(--sheet); color: var(--ink); }
 .iconbtn:hover { border-color: var(--ink-2); }
 
-.wrap { max-width: 1240px; margin: 0 auto; padding: 28px 24px 80px; }
+.wrap { max-width: 1600px; margin: 0 auto; padding: 28px clamp(16px, 3vw, 48px) 96px; }
 
 /* ---------- buttons & controls ---------- */
 .btn { display: inline-flex; align-items: center; gap: 8px; background: var(--sheet); border: 1px solid var(--ink-2); border-radius: 4px; padding: 8px 14px; color: var(--ink); text-decoration: none; font-weight: 500; white-space: nowrap; }
@@ -485,3 +485,7 @@ table.t tr.click:hover td { background: var(--field); }
   .wrap { padding: 20px 16px 60px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* layout: no squeezed action columns */
+table.t td:last-child, table.t th:last-child { white-space: nowrap; }
+table.t td .linkbtn { white-space: nowrap; }

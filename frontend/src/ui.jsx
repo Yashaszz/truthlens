@@ -14,8 +14,19 @@ function writePrefs(p) {
 const UI = createContext(null);
 export const useUI = () => useContext(UI);
 
+export const THEMES = [
+  { key: "light", name: "Paper", colors: ["#f3efe6", "#1e1c19", "#a3321f"] },
+  { key: "dark", name: "Night", colors: ["#171612", "#ece5d6", "#e2765e"] },
+  { key: "violet", name: "Midnight violet", colors: ["#120c24", "#d946ef", "#d9f99d"] },
+  { key: "ocean", name: "Ocean", colors: ["#0a1520", "#22d3ee", "#fde68a"] },
+  { key: "forest", name: "Forest", colors: ["#0d150f", "#4ade80", "#fef08a"] },
+  { key: "rose", name: "Rose", colors: ["#faf0ef", "#2a1215", "#e11d48"] },
+  { key: "contrast", name: "High contrast", colors: ["#000000", "#ffffff", "#ffe14d"] },
+  { key: "system", name: "Match system", colors: ["#f3efe6", "#171612", "#7b7467"] },
+];
+
 function resolveTheme(t) {
-  if (t === "light" || t === "dark") return t;
+  if (t && t !== "system") return t;
   try { return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; } catch { return "light"; }
 }
 

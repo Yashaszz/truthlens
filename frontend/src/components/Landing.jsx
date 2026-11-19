@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api.jsx";
 import { CountUp } from "./Motion.jsx";
 import { StatusTag } from "./CaseFiles.jsx";
@@ -54,7 +54,18 @@ function AccuracyStrip() {
   );
 }
 
+const TICK = [["Face swaps", "DFDC-winning video detector"], ["AI images", "96% on photoreal generators"], ["Cloned voices", "AUC 0.91 cross-dataset"],
+  ["Seen online", "exact copies + fact-checks"], ["Chain of custody", "SHA-256 on ingest"], ["Lip-sync", "mouth vs voice"], ["Metadata", "C2PA · EXIF · XMP"]];
+
 export default function Landing({ cases, health, onDemo }) {
+  const card = useRef(null);
+  const tilt = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+    card.current?.style.setProperty("--ry", `${-14 + x * 22}deg`);
+    card.current?.style.setProperty("--rx", `${8 - y * 18}deg`);
+  };
+  const untilt = () => { card.current?.style.removeProperty("--ry"); card.current?.style.removeProperty("--rx"); };
   const done = cases.filter((c) => c.status === "complete");
   const files = cases.reduce((n, c) => n + (c.evidence_count || 0), 0);
   const times = done.map((c) => c.duration_s).filter(Boolean);
@@ -64,35 +75,44 @@ export default function Landing({ cases, health, onDemo }) {
 
   return (
     <div>
-      <section className="hero">
-        <div>
-          <div className="kicker">Multimodal digital forensics</div>
-          <h1>Evidence you can <em>explain</em>, not just a score.</h1>
-          <p>
-            TruthLens examines photos, video, voice recordings and the captions that come with them. It shows you
-            what looks manipulated, exactly where, how sure it is, and what else could explain it.
+      <section className="hero2" onMouseMove={tilt} onMouseLeave={untilt}>
+        <div className="copy">
+          <h1><span className="spark">✦</span>Spot the fake<br />before it <span className="lit">spreads</span></h1>
+          <p className="lede">
+            Deepfake videos, AI images, cloned voices and misleading captions, examined in seconds with detectors
+            measured on public benchmarks, and an explanation of every flag.
           </p>
-          <div className="ctas">
-            <a className="btn ink big" href="#/new">Start a check</a>
-            <button className="btn big" onClick={onDemo}>Try a sample case</button>
-            <span className="small muted" style={{ marginLeft: 6 }}>
-              {ready ? "Engine ready" : health?.status === "ok" ? "Engine warming up…" : "Engine offline"}{health?.device ? ` · ${health.device}` : ""}
-            </span>
+          <div className="cta-row">
+            <a className="cta" href="#/new"><span>Start a check</span><span className="arr">→</span></a>
+            <button className="cta ghost" onClick={onDemo}><span>Try a sample case</span><span className="arr">▶</span></button>
+          </div>
+          <div className="hero-meta">
+            <span><i className={ready ? "" : "off"} />{ready ? "Engine ready" : health?.status === "ok" ? "Engine warming up" : "Engine offline"}</span>
+            {health?.device && <span>{health.device}</span>}
+            <span>Press N for a new check</span>
           </div>
         </div>
-        <div className="specimen" aria-hidden="true">
-          <span className="clip" />
-          <div className="label">Case file · specimen</div>
-          <div className="stamp c-indicators" style={{ margin: "12px 0 14px" }}>
-            <div className="label">Overall finding</div>
-            <div className="h" style={{ fontSize: 21 }}>Signs of possible manipulation</div>
+        <div className="stage" aria-hidden="true">
+          <span className="blob" />
+          <span className="blob b2" />
+          <div className="glass" ref={card}>
+            <div className="g-top"><span>TRUTHLENS · SCAN</span><span>TL-0427</span></div>
+            <div className="bars">
+              <div>FACE SWAP</div><span><i /></span>
+              <div>VOICE CLONE</div><span><i /></span>
+              <div>AI IMAGE</div><span><i /></span>
+            </div>
+            <div className="face" />
+            <div className="scan" />
+            <div className="res">CHANCE FAKE<b>98%</b><span className="pill">FAKE</span></div>
           </div>
-          <div className="row"><b>1</b><span>Part of the picture was copied and pasted elsewhere in it.</span><span className="tag strong">Strong</span></div>
-          <div className="row"><b>2</b><span>The quote in the caption is not said in the recording.</span><span className="tag moderate">Moderate</span></div>
-          <div className="row"><b>3</b><span>Perfectly silent gaps at 0:09 suggest cut-and-paste audio.</span><span className="tag moderate">Moderate</span></div>
-          <div className="row" style={{ color: "var(--muted)" }}><span style={{ color: "var(--green)", fontWeight: 700 }}>✓</span><span>Lip movements match the voice.</span><span /></div>
         </div>
       </section>
+      <div className="ticker" aria-hidden="true">
+        <div>
+          {[...TICK, ...TICK].map((t, i) => <span key={i}>✦ <b>{t[0]}</b> {t[1]}</span>)}
+        </div>
+      </div>
 
       <section className="band-strip">
         {KINDS.map((x) => (

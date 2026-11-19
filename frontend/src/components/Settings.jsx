@@ -1,5 +1,5 @@
 import React from "react";
-import { MODE_INFO, useUI } from "../ui.jsx";
+import { MODE_INFO, THEMES, useUI } from "../ui.jsx";
 
 export default function Settings({ health, cases }) {
   const { prefs, setPref, toast } = useUI();
@@ -11,11 +11,11 @@ export default function Settings({ health, cases }) {
         <div className="label">Appearance</div>
         <div>
           <div className="seg">
-            {[["light", "Light"], ["dark", "Dark"], ["system", "Match system"]].map(([k, n]) => (
+            {THEMES.map(({ key: k, name: n }) => (
               <button key={k} className={prefs.theme === k ? "on" : ""} onClick={() => setPref("theme", k)}>{n}</button>
             ))}
           </div>
-          <div className="small muted" style={{ marginTop: 6 }}>The button with the sun/moon icon in the top bar switches themes too.</div>
+          <div className="small muted" style={{ marginTop: 6 }}>The palette button in the top bar switches themes too.</div>
         </div>
 
         <div className="label">Examiner name</div>
