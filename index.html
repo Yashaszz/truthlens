@@ -24,17 +24,25 @@
   <p id="msg"><span class="spin"></span>Connecting to the analysis engine…</p>
 </main>
 <script>
-  // Live engine address (Cloudflare tunnel to the GPU machine). Updated whenever the tunnel restarts.
+  // Fast engine: Cloudflare tunnel to the team's GPU laptop (kept up to date by start-truthlens.ps1).
   const TARGET = "https://must-detect-partnership-elected.trycloudflare.com";
+  // Always-on backup: Hugging Face Space (CPU, slower). Empty until deployed.
+  const BACKUP = "";
   const msg = document.getElementById("msg");
-  const go = () => { location.replace(TARGET + "/"); };
-  const ctl = new AbortController();
-  setTimeout(() => ctl.abort(), 12000);
-  fetch(TARGET + "/api/health", { mode: "no-cors", cache: "no-store", signal: ctl.signal })
-    .then(go)
+  const probe = (url, ms) => {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), ms);
+    return fetch(url + "/api/health", { mode: "no-cors", cache: "no-store", signal: ctl.signal }).finally(() => clearTimeout(t));
+  };
+  probe(TARGET, 7000)
+    .then(() => location.replace(TARGET + "/"))
     .catch(() => {
-      msg.innerHTML = '<span class="off">The demo server is temporarily offline.</span><br>' +
-        'Please try again in a minute. <a href="' + TARGET + '/">Open directly</a>';
+      if (BACKUP) {
+        msg.innerHTML = '<span class="spin"></span>Main server is offline. Opening the backup server (slower; may take a minute to wake up)…';
+        setTimeout(() => location.replace(BACKUP + "/"), 1800);
+      } else {
+        msg.innerHTML = '<span class="off">The demo server is temporarily offline.</span><br>Please try again in a minute.';
+      }
     });
 </script>
 </body>
