@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TruthLens</title>
+<style>
+  :root { --paper:#f3efe6; --ink:#1e1c19; --muted:#7b7467; --red:#a3321f; }
+  @media (prefers-color-scheme: dark) { :root { --paper:#171612; --ink:#ece5d6; --muted:#948b7b; --red:#e2765e; } }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--paper); color:var(--ink);
+         font:16px/1.6 Georgia, "Times New Roman", serif; padding:16px; box-sizing:border-box; text-align:center; }
+  h1 { font-size:42px; margin:0 0 6px; letter-spacing:-.02em; }
+  p { color:var(--muted); margin:6px 0; font-family:"Segoe UI", system-ui, sans-serif; }
+  .spin { width:18px; height:18px; border:2px solid var(--muted); border-top-color:var(--ink); border-radius:50%;
+          display:inline-block; vertical-align:-3px; margin-right:8px; animation:s .8s linear infinite; }
+  @keyframes s { to { transform:rotate(360deg); } }
+  .off { color:var(--red); font-weight:600; }
+  a { color:var(--ink); }
+</style>
+</head>
+<body>
+<main>
+  <h1>TruthLens</h1>
+  <p id="msg"><span class="spin"></span>Connecting to the analysis engine…</p>
+</main>
+<script>
+  // Live engine address (Cloudflare tunnel to the GPU machine). Updated whenever the tunnel restarts.
+  const TARGET = "https://must-detect-partnership-elected.trycloudflare.com";
+  const msg = document.getElementById("msg");
+  const go = () => { location.replace(TARGET + "/"); };
+  const ctl = new AbortController();
+  setTimeout(() => ctl.abort(), 12000);
+  fetch(TARGET + "/api/health", { mode: "no-cors", cache: "no-store", signal: ctl.signal })
+    .then(go)
+    .catch(() => {
+      msg.innerHTML = '<span class="off">The demo server is temporarily offline.</span><br>' +
+        'Please try again in a minute. <a href="' + TARGET + '/">Open directly</a>';
+    });
+</script>
+</body>
+</html>
