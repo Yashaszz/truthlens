@@ -131,7 +131,8 @@ the evidence that supports it, its limitations and alternative explanations, and
 <div class=verdict><div class=band>{e(fu.get('band_label', 'n/a'))}</div>
 Fused indicator score <b>{fu.get('score', 0):.2f}</b> (uncertainty band {fu.get('interval', [0, 0])[0]:.2f}–{fu.get('interval', [0, 0])[1]:.2f}),
 signal agreement {fu.get('agreement') if fu.get('agreement') is not None else 'n/a'}, {fu.get('n_signals', 0)} detector signals,
-{len(r.get('findings', []))} flagged findings, {len(r.get('links', []))} cross-modal links.</div>
+{len(r.get('findings', []))} flagged findings, {len(r.get('links', []))} cross-modal links.
+{f"<br>Case assessment follows the most suspicious evidence item, <b>{fu['driven_by']}</b>; score pooled across all items: {fu.get('pooled_score', 0):.2f}." if fu.get('driven_by') else ''}</div>
 <p><b>Main drivers:</b></p><ul>{drivers}</ul>
 <table><tr><th>Modality</th><th>Score</th><th>Band</th><th>Assessment</th></tr>{mods}</table>
 <h2>2. Case context</h2><p>{e(case.get('context') or 'No context supplied.')}</p>

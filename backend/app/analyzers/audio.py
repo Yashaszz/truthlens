@@ -86,6 +86,15 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
         agg = float(0.5 * np.median(arr) + 0.5 * np.percentile(arr, 80))
         segs = _merge_segments([(a, b, p) for (a, b), p in zip(wins, probs) if p >= 0.65])
         rel = 0.5 * min(1.0, len(chunks) / 5) * (0.6 if summary["speech_ratio"] < 0.2 else 1.0)
+        if np.mean((arr < 0.02) | (arr > 0.98)) > 0.8:
+            rel *= 0.7  # saturated (near 0/1) outputs: the classifier is over-confident here
+            ctx.limit(f"{eid}: voice-spoof classifier outputs are saturated (near 0 or 1), a sign of over-confidence "
+                      "on out-of-distribution audio; its weight was reduced.")
+        flagged = arr[arr >= 0.65]
+        if flagged.size:
+            # localised manipulation (e.g. one cloned sentence) must not be hidden by the median of clean windows
+            frac = flagged.size / arr.size
+            agg = max(agg, float(flagged.mean()) * (0.5 + 0.5 * frac))
         if segs:
             f = ctx.finding(modality, eid, "voice-synthesis",
                             f"Synthetic-speech indicators in {len(segs)} segment(s)",
@@ -93,7 +102,7 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
                             f"{sum(p >= 0.65 for p in probs)}/{len(probs)} speech windows ≥65% fake "
                             f"(median {np.median(arr):.0%}, peak {arr.max():.0%}). Segments: "
                             + ", ".join(f"{fmt_ts(s['start'])}–{fmt_ts(s['end'])}" for s in segs[:6]) + ".",
-                            {"type": "segments", "segments": segs}, agg, rel, "audio_spoof_model",
+                            {"type": "segments", "segments": segs}, float(flagged.mean()), rel, "audio_spoof_model",
                             limitations="Trained on specific TTS/VC systems; phone codecs, music, noise and "
                                         "non-English speech raise false positives. Unseen cloning tools may evade it.",
                             alternatives=["Low-bitrate / telephone compression", "Background music", "Studio processing (autotune, denoise)"])

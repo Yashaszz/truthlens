@@ -16,7 +16,13 @@ import numpy as np
 
 from .common import clamp
 
-PRIOR_WEIGHT = 1.0
+PRIOR_WEIGHT = 0.7
+SCORE_CLIP = (0.1, 0.9)       # no single detector may claim more than 90% certainty ("avoid unsupported certainty")
+ABSENCE_FACTOR = 0.6          # "found nothing" is weaker evidence than "found something"
+CORROBORATION = 1.3           # cross-modal corroboration
+LOCAL_AGREEMENT = 1.25        # >=2 localised detectors agreeing on the same evidence item
+LOCALISED = {"ela", "noise_residual", "copy_move", "digital_silence", "noise_floor_jumps", "face_deepfake_model",
+             "audio_spoof_model", "av_sync", "temporal_cuts", "frozen_frames", "face_sharpness"}
 BANDS = [
     ("strong", "Strong indicators of manipulation"),
     ("indicators", "Indicators of possible manipulation"),
@@ -26,7 +32,7 @@ BANDS = [
 
 
 def _logit(p: float) -> float:
-    p = clamp(p, 0.02, 0.98)
+    p = clamp(p, *SCORE_CLIP)
     return math.log(p / (1 - p))
 
 
@@ -40,10 +46,18 @@ def pool(signals: list[dict], corroborated: set[str]) -> dict:
                 "band_label": dict(BANDS)["inconclusive"], "agreement": None, "evidence_weight": 0.0,
                 "drivers": [], "n_signals": 0}
     ws, ls, ss, contrib = [], [], [], []
+    agreeing: dict[str, int] = {}
+    for s in signals:
+        if s["detector"] in LOCALISED and s["score"] >= 0.55:
+            agreeing[s["evidence_id"]] = agreeing.get(s["evidence_id"], 0) + 1
     for s in signals:
         w = s["importance"] * s["reliability"]
+        if s["score"] < 0.5:
+            w *= ABSENCE_FACTOR
         if set(s["finding_ids"]) & corroborated:
-            w *= 1.3
+            w *= CORROBORATION
+        if s["detector"] in LOCALISED and s["score"] >= 0.55 and agreeing.get(s["evidence_id"], 0) >= 2:
+            w *= LOCAL_AGREEMENT
         ws.append(w)
         ls.append(_logit(s["score"]))
         ss.append(s["score"])
@@ -86,10 +100,23 @@ def fuse(signals: list[dict], findings: list[dict]) -> dict:
             corroborated |= set(f["related"])
     modalities = sorted({s["modality"] for s in signals})
     evids = sorted({s["evidence_id"] for s in signals if s["evidence_id"]})
+    by_ev = {e: pool([s for s in signals if s["evidence_id"] == e], corroborated) for e in evids}
+    pooled = pool(signals, corroborated)
+    # Different evidence items test different hypotheses: one manipulated file makes the case suspicious even if
+    # the other files are clean, so the case assessment follows the most suspicious item when it exceeds the pool.
+    overall = dict(pooled)
+    overall["driven_by"] = None
+    if by_ev:
+        top_id, top = max(by_ev.items(), key=lambda kv: kv[1]["score"])
+        if top["score"] > pooled["score"]:
+            overall = {**top, "driven_by": top_id, "drivers": top["drivers"]}
+    overall["pooled_score"] = pooled["score"]
     return {
-        "overall": pool(signals, corroborated),
+        "overall": overall,
         "by_modality": {m: pool([s for s in signals if s["modality"] == m], corroborated) for m in modalities},
-        "by_evidence": {e: pool([s for s in signals if s["evidence_id"] == e], corroborated) for e in evids},
-        "method": "Reliability-weighted log-odds pooling with neutral prior; uncertainty band from signal "
-                  "disagreement and total evidence weight; 1.3x weight for cross-modally corroborated signals.",
+        "by_evidence": by_ev,
+        "method": "Reliability-weighted log-odds pooling with a neutral prior; per-signal certainty capped at 0.1–0.9; "
+                  "absence-of-evidence signals down-weighted 0.6x; 1.3x for cross-modally corroborated signals and "
+                  "1.25x when two or more localised detectors agree on the same item; uncertainty band from signal "
+                  "disagreement and total evidence weight.",
     }

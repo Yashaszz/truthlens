@@ -5,7 +5,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 transformers
-opencv-python-headless
+opencv-python-headless<5   # 5.x removed the Haar CascadeClassifier
 librosa
 soundfile
 scipy

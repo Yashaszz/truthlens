@@ -143,7 +143,13 @@ function Overview({ c, r, onFinding, goTab }) {
               <b style={{ color: "var(--text)" }}>{o.interval[0].toFixed(2)}–{o.interval[1].toFixed(2)}</b> · signal agreement{" "}
               <b style={{ color: "var(--text)" }}>{o.agreement != null ? `${Math.round(o.agreement * 100)}%` : "n/a"}</b>
             </div>
-            <div className="muted small">{o.n_signals} detector signals · {r.findings.length} flagged findings · {r.links.length} cross-modal links · {r.duration_s}s</div>
+            {o.driven_by && (
+              <div className="small" style={{ marginTop: 2 }}>
+                Driven by the most suspicious item <b className="mono">{o.driven_by}</b>
+                <span className="muted"> ({c.evidence.find((e) => e.id === o.driven_by)?.filename}); pooled across all items: {o.pooled_score?.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="muted small">{o.n_signals} detector signals · {r.findings.length} flagged findings · {r.links.length} cross-modal links · analysed in {r.duration_s}s</div>
           </div>
           <div style={{ flex: 1, minWidth: 300 }}><RangeGauge score={o.score} interval={o.interval} /></div>
         </div>

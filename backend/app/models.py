@@ -129,7 +129,15 @@ def transcribe(wav_path: Path) -> dict | None:
 
 def _run_whisper(wav_path: Path) -> dict:
     model, dev = _whisper
-    segments, info = model.transcribe(str(wav_path), word_timestamps=True, vad_filter=True, beam_size=3)
+    # Pass decoded samples rather than a path: avoids faster-whisper's PyAV decoder, whose API changed in av>=15.
+    import soundfile as sf
+    audio, sr = sf.read(str(wav_path), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    if sr != 16000:
+        import librosa
+        audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
+    segments, info = model.transcribe(audio, word_timestamps=True, vad_filter=True, beam_size=3)
     segs = []
     for s in segments:
         segs.append({

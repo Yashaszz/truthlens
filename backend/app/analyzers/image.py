@@ -117,7 +117,7 @@ def analyze_image(ctx: AnalysisContext, ev: dict, path: Path, *, source_label: s
                        "Generative-AI software markers present in file metadata.", [f["id"]],
                        label="Generator metadata")
         else:
-            ctx.signal("generator_metadata", modality, eid, 0.3, 0.15,
+            ctx.signal("generator_metadata", modality, eid, 0.3, 0.05,
                        "No generator markers found (weak evidence: metadata is easily stripped).",
                        label="Generator metadata")
 

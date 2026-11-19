@@ -38,16 +38,17 @@ def strip_subs(s: str) -> str:
 
 def best_match(quote: str, transcript_words: list[dict]) -> tuple[float, float | None, float | None]:
     """Fuzzy-locate a quote in a word-timestamped transcript. Returns (ratio, start, end)."""
-    q = " ".join(words(quote))
-    qn = len(q.split())
+    # Word-level (not character-level) alignment: shared function words and letters must not make an
+    # invented quote look like a match.
+    q = words(quote)
+    qn = len(q)
     if not transcript_words or qn == 0:
         return 0.0, None, None
     toks = [re.sub(r"[^a-z0-9']", "", w["w"].lower()) for w in transcript_words]
     best = (0.0, None, None)
     for size in {max(1, int(qn * 0.8)), qn, int(qn * 1.25) + 1}:
         for i in range(0, max(1, len(toks) - size + 1)):
-            cand = " ".join(toks[i:i + size])
-            r = SequenceMatcher(None, q, cand).ratio()
+            r = SequenceMatcher(None, q, toks[i:i + size], autojunk=False).ratio()
             if r > best[0]:
                 best = (r, transcript_words[i]["start"], transcript_words[min(len(toks), i + size) - 1]["end"])
     return best
@@ -92,7 +93,18 @@ def analyze_text(ctx: AnalysisContext, context: str, text_evidence: list[dict], 
             ev_id = all_words[0]["evidence_id"]
             entry = {"quote": q, "match_ratio": round(ratio, 3), "start": s, "end": e, "source": c["source"]}
             summary["quotes"].append(entry)
-            if ratio < 0.6:
+            if 0.5 <= ratio < 0.75:
+                entry["status"] = "partial"
+                f = ctx.finding("text", c["evidence_id"] or ev_id, "context", "Quote only partially matches the recording",
+                                f"The quote “{q[:160]}” matches the closest spoken passage at {ratio:.0%} (word level). "
+                                "It may be paraphrased, truncated or altered.",
+                                {"type": "text", "source": c["source"], "quote": q, "closest_segment": {"start": s, "end": e}},
+                                0.45, 0.45, "quote_check",
+                                limitations="ASR errors on names/numbers lower the match.",
+                                alternatives=["Legitimate paraphrase", "Transcription error"])
+                ctx.signal("quote_check", "text", c["evidence_id"] or ev_id, 0.45, 0.45, f"Quote match {ratio:.0%}.",
+                           [f["id"]], label="Quote verification")
+            elif ratio < 0.5:
                 entry["status"] = "not found"
                 f = ctx.finding("text", c["evidence_id"] or ev_id, "context",
                                 "Quoted statement not found in the recording",

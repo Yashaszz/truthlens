@@ -162,7 +162,7 @@ def copy_move(gray: np.ndarray, max_side: int = 1200) -> dict | None:
     keys = [tuple(k) for k in np.round(off / binsz).astype(int)]
     from collections import Counter
     key, count = Counter(keys).most_common(1)[0]
-    if count < 10:
+    if count < 16:  # fewer matches are routinely produced by repeated structure (tiles, flat shapes, text)
         return None
     sel = [pairs[i] for i, k in enumerate(keys) if k == key]
     src = np.array([p for p, _ in sel]) / scale

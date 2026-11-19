@@ -157,4 +157,5 @@ def list_cases() -> list[dict]:
             "modalities": sorted({e["modality"] for e in c["evidence"]}),
             "assessment": (r.get("fusion") or {}).get("overall", {}).get("band"),
         })
+    out.sort(key=lambda c: c["created_at"], reverse=True)
     return out

@@ -44,6 +44,8 @@ def correlate(ctx: AnalysisContext, evidence: list[dict], summaries: dict[str, d
             if f["evidence_id"] != ev["id"] or f["detector"] in ("ela",):
                 continue
             for a, b in _intervals(f):
+                if b - a > 6.0:
+                    continue  # long spans (e.g. a whole-clip freeze) overlap everything and prove nothing
                 items.append((max(0.0, a), b, _group(f), f))
         if not items:
             continue
