@@ -15,10 +15,20 @@ export default function App() {
     const on = () => setPath(route());
     window.addEventListener("hashchange", on);
     refresh();
-    api.health().then(setHealth).catch(() => setHealth({ status: "down" }));
     const t = setInterval(refresh, 5000);
     return () => { window.removeEventListener("hashchange", on); clearInterval(t); };
   }, [refresh]);
+
+  // poll health until the background model warm-up has finished
+  useEffect(() => {
+    let timer;
+    const poll = () => api.health()
+      .then((h) => { setHealth(h); if (h.warmup?.state !== "ready" && h.enabled) timer = setTimeout(poll, 2000); })
+      .catch(() => { setHealth({ status: "down" }); timer = setTimeout(poll, 4000); });
+    poll();
+    return () => clearTimeout(timer);
+  }, []);
+  const warm = health?.warmup;
 
   const caseId = path.startsWith("case/") ? path.slice(5) : null;
   const go = (p) => { window.location.hash = p; };
@@ -64,6 +74,11 @@ export default function App() {
               <div><span className="dot" style={{ background: "var(--green)" }} />Engine v{health.version} online</div>
               <div>Compute: {health.device}</div>
               <div>Models: {health.enabled ? "pretrained + classical" : "classical only"}</div>
+              {health.enabled && warm && (warm.state === "ready" ? (
+                <div><span className="dot" style={{ background: "var(--green)" }} />Models warm ({warm.done.length}/4, {warm.seconds}s)</div>
+              ) : (
+                <div><span className="spin" style={{ width: 10, height: 10, marginRight: 6 }} />Warming up models ({warm.done.length}/4)…</div>
+              ))}
             </>
           ) : <div><span className="dot" style={{ background: "var(--red)" }} />Backend offline: start the API on :8000</div>}
         </div>

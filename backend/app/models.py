@@ -151,10 +151,51 @@ def _run_whisper(wav_path: Path) -> dict:
             "text": " ".join(s["text"] for s in segs), "model": f"faster-whisper-{WHISPER_MODEL} ({dev})"}
 
 
+_warm = {"state": "idle", "done": [], "seconds": None}
+
+
+def preload():
+    """Load every model and run one dummy inference so CUDA kernels are compiled before the first upload.
+    Runs in a background thread at server start; analysis requests made meanwhile simply wait on the same locks."""
+    import time
+    import numpy as np
+    from PIL import Image
+    t0 = time.time()
+    _warm["state"] = "warming"
+    steps = [
+        ("face_deepfake", lambda: face_deepfake_probs([Image.new("RGB", (224, 224), (128, 110, 100))])),
+        ("ai_image", lambda: ai_image_prob(Image.new("RGB", (224, 224), (90, 120, 150)))),
+        ("audio_spoof", lambda: audio_spoof_probs([np.zeros(16000 * 2, np.float32) + 1e-4])),
+        ("whisper", _warm_whisper),
+    ]
+    for name, fn in steps:
+        try:
+            fn()
+            _warm["done"].append(name)
+            log.info("warm-up: %s ready (%.1fs)", name, time.time() - t0)
+        except Exception as e:  # pragma: no cover
+            log.warning("warm-up: %s failed: %s", name, e)
+    _warm["state"] = "ready"
+    _warm["seconds"] = round(time.time() - t0, 1)
+    log.info("warm-up complete in %.1fs", _warm["seconds"])
+
+
+def _warm_whisper():
+    if not ENABLE_WHISPER:
+        return
+    import numpy as np
+    with _lock:
+        if _whisper is None:
+            _load_whisper()
+        model, _ = _whisper
+        tone = (0.1 * np.sin(np.linspace(0, 2 * np.pi * 220, 16000))).astype(np.float32)
+        list(model.transcribe(tone, beam_size=1)[0])
+
+
 def status() -> dict:
     return {"enabled": ENABLE_MODELS, "device": device_name(), "models": MODELS,
             "whisper": WHISPER_MODEL, "loaded": [k for k, v in _pipes.items() if v is not None],
-            "errors": dict(_errors)}
+            "warmup": dict(_warm), "errors": dict(_errors)}
 
 
 def model_error(key: str) -> str | None:

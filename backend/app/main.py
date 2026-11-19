@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -17,7 +19,18 @@ from .pipeline import run_analysis
 from .report import render_html
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-app = FastAPI(title="TruthLens", version=APP_VERSION)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Warm all models in the background: the server accepts requests immediately, and the first upload no
+    # longer pays the 15-30 s model-load cost. Disable with TRUTHLENS_PRELOAD=0.
+    if os.getenv("TRUTHLENS_PRELOAD", "1") == "1":
+        threading.Thread(target=models.preload, name="model-warmup", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="TruthLens", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
                    allow_methods=["*"], allow_headers=["*"])
 _jobs: dict[str, threading.Thread] = {}
