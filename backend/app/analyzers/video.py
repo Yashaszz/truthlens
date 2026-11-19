@@ -265,6 +265,32 @@ def analyze_video(ctx: AnalysisContext, ev: dict, path: Path) -> dict:
         summary["artifacts"]["keyframe_ela"] = f"artifacts/{eid}/keyframe_{key['idx']}_ela.jpg"
         summary["keyframe_t"] = round(key["t"], 2)
 
+    # ---------------- fully AI-generated video: AI-image ensemble on spread frames -----
+    if samples and ctx.models_on("AI-generated video check"):
+        from .. import detectors
+        picks = [samples[int(i)] for i in np.linspace(0, len(samples) - 1, min(8, len(samples))).astype(int)]
+        frames = [Image.fromarray(cv2.cvtColor(s["frame"], cv2.COLOR_BGR2RGB)) for s in picks]
+        r = detectors.AI_IMAGE.predict(frames)
+        if r["p"] is not None:
+            fp = np.asarray(r["p"], dtype=float)
+            # a generated clip is generated throughout; use a robust central value, not the max
+            agg = float(0.6 * np.median(fp) + 0.4 * np.percentile(fp, 75))
+            summary["ai_frames"] = {"p": round(agg, 4), "per_frame": [{"t": round(s["t"], 2), "p": round(float(v), 3)} for s, v in zip(picks, fp)]}
+            if agg >= 0.5:
+                f = ctx.finding("video", eid, "synthetic-generation", "AI-generated video footage",
+                                f"The calibrated AI-image ensemble scores {len(fp)} frames spread across the clip at a median "
+                                f"{np.median(fp):.0%} AI-generated. Footage from video generators (Sora, Veo, Runway, Kling…) "
+                                "carries the same generator fingerprints as AI images.",
+                                {"type": "frames", "frames": [{"t": round(s["t"], 2), "frame": s["idx"], "score": round(float(v), 3)}
+                                                              for s, v in zip(picks, fp) if v >= 0.5]},
+                                agg, 0.7, "ai_frames",
+                                limitations="Calibrated on still images; heavy video compression lowers scores.",
+                                alternatives=["CGI / animation", "Heavily stylised colour grading"])
+                ctx.signal("ai_frames", "video", eid, agg, 0.7, f"Median frame P(AI) {np.median(fp):.2f}", [f["id"]], label="AI-generated video")
+            else:
+                ctx.signal("ai_frames", "video", eid, agg, 0.7, f"Frames look camera-captured (median P(AI) {np.median(fp):.2f}).",
+                           label="AI-generated video")
+
     # sync inputs & frame hashes for cross-modal matching
     mm = np.array(mouth_motion, dtype=np.float64)
     summary["_mouth_motion"] = mm

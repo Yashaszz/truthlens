@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, fileUrl, fmtTs, Kind, scoreColor } from "../api.jsx";
 import { DualSeries, LagCurve, Meter, Timeline } from "./Charts.jsx";
+import ThreatMatrix from "./ThreatMatrix.jsx";
 
 /* ------------------------------------------------------------ helpers */
 export const intervalsOf = (f) => {
@@ -298,6 +299,12 @@ export function FileSection({ c, ev, hl, onUpdate, setZoom }) {
         </div>
       </div>
       {s.error && <div className="notice" style={{ marginBottom: 12 }}>This file could not be fully analysed: {s.error}</div>}
+      {r.threats?.items?.[ev.id] && (
+        <details className="more" style={{ marginTop: 0, marginBottom: 16, borderTop: 0 }}>
+          <summary>Threat check for this file <span className="muted small">{r.threats.items[ev.id].matrix.filter((m) => ["detected", "likely", "at_risk"].includes(m.status)).length} flagged of {r.threats.items[ev.id].matrix.length}</span></summary>
+          <ThreatMatrix item={r.threats.items[ev.id]} />
+        </details>
+      )}
 
       <div className="file-grid">
         <div>

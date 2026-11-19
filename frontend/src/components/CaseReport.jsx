@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api, Kind, KIND, scoreColor } from "../api.jsx";
 import { MODE_INFO, useUI } from "../ui.jsx";
 import { Meter, Scale } from "./Charts.jsx";
+import ThreatMatrix, { VerdictMeter } from "./ThreatMatrix.jsx";
 import { FileSection } from "./Evidence.jsx";
 
 const EFFECT = {
@@ -232,8 +233,25 @@ export default function CaseReport({ caseId, onDone }) {
                   <p className="sub">{s.subline}</p>
                   <div className="small">{s.confidence_text}{s.driven_by && <> The result rests mainly on <b>{s.driven_by}</b>.</>}</div>
                 </div>
-                <Scale score={r.fusion.overall.score} interval={r.fusion.overall.interval} />
+                {s.verdict?.confidence != null ? <VerdictMeter verdict={s.verdict} /> : <Scale score={r.fusion.overall.score} interval={r.fusion.overall.interval} />}
               </div>
+              {r.threats?.items && Object.keys(r.threats.items).length > 0 && (
+                <div style={{ marginTop: 26 }}>
+                  <h3 style={{ fontSize: 17, marginBottom: 6 }}>Threat check</h3>
+                  {Object.entries(r.threats.items).map(([eid, it]) => {
+                    const e = c.evidence.find((x) => x.id === eid);
+                    return (
+                      <div key={eid} style={{ marginTop: 12 }}>
+                        <div className="small" style={{ display: "flex", gap: 10, alignItems: "center", borderBottom: "1px solid var(--rule)", paddingBottom: 4 }}>
+                          <Kind m={it.kind} /><b style={{ overflowWrap: "anywhere" }}>{e?.filename}</b>
+                          {it.verdict?.confidence != null && <span className={`tag ${it.verdict.fake ? (it.verdict.confidence >= 0.8 ? "strong" : "moderate") : "ok"}`}>{it.verdict.label} · {Math.round(it.verdict.confidence * 100)}%</span>}
+                        </div>
+                        <ThreatMatrix item={it} compact onFinding={goFinding} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="cols">
                 <div>
                   <h3>What we found</h3>
@@ -344,10 +362,45 @@ function jump(e, id) {
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function Accuracy() {
+  const [a, setA] = useState(null);
+  useEffect(() => { api.accuracy().then(setA).catch(() => setA({})); }, []);
+  if (!a) return <div className="small muted">Loading…</div>;
+  const rows = [["ai_image", "AI-generated images"], ["face_swap", "Face swaps & synthetic faces"], ["voice", "Cloned / synthetic voices"], ["manipulation_classical", "Classical forensics (editing)"]];
+  return (
+    <>
+      <table className="t">
+        <thead><tr><th>Threat</th><th>Accuracy</th><th>AUC</th><th>Catches fakes</th><th>Clears genuine</th><th>How it was measured</th></tr></thead>
+        <tbody>
+          {rows.filter(([k]) => a[k]).map(([k, n]) => {
+            const h = a[k].heldout;
+            return (
+              <tr key={k}><td><b>{n}</b><div className="tiny muted">{(a[k].models || []).join(" + ")}</div></td>
+                <td className="mono">{(h["acc@0.5"] * 100).toFixed(1)}%</td><td className="mono">{h.auc.toFixed(3)}</td>
+                <td className="mono">{(h["tpr@0.5"] * 100).toFixed(0)}%</td><td className="mono">{(h["tnr@0.5"] * 100).toFixed(0)}%</td>
+                <td className="small">{a[k].protocol}</td></tr>
+            );
+          })}
+          {a.hidden_ai && <tr><td><b>Local AI edits (tile scan)</b></td><td className="mono">{(a.hidden_ai.tile["acc@0.5"] * 100).toFixed(1)}%</td>
+            <td className="mono">{a.hidden_ai.tile.auc.toFixed(3)}</td><td className="mono">{(a.hidden_ai.tile["tpr@0.5"] * 100).toFixed(0)}%</td>
+            <td className="mono">{(a.hidden_ai.tile["tnr@0.5"] * 100).toFixed(0)}%</td><td className="small">AI-inpainting subsets of OpenSDID / TGIF / CocoGlide vs authentic photos</td></tr>}
+        </tbody>
+      </table>
+      <div className="small muted" style={{ marginTop: 8 }}>
+        Measured on held-out public data the detectors were not tuned on. AUC 0.5 = guessing, 1.0 = perfect.
+        Forgery model (TruFor): {a.trufor_installed ? "installed" : "not enabled"}. Full method in EVALUATION.md.
+      </div>
+    </>
+  );
+}
+
 function Appendix({ c, r }) {
   const o = r.fusion.overall;
   return (
     <>
+      <div className="block-title" style={{ marginTop: 0 }}>Measured accuracy of these detectors</div>
+      <Accuracy />
+      <div className="block-title">How the evidence was combined</div>
       <div className="kv">
         <div>Fused indicator score</div><div><span className="mono">{o.score.toFixed(3)}</span> (uncertainty band {o.interval[0].toFixed(2)}–{o.interval[1].toFixed(2)})</div>
         <div>Signal agreement</div><div className="mono">{o.agreement != null ? o.agreement.toFixed(2) : "n/a"}</div>

@@ -173,7 +173,7 @@ def analyze_image(ctx: AnalysisContext, ev: dict, path: Path, *, source_label: s
     tex_b = fx.block_mean(tex, B)
     z = fx.texture_normalised_z(ela_b, tex_b)
     regions = fx.outlier_regions(z, B, thresh=4.0, min_blocks=4)
-    ela_rel = (0.55 if is_jpeg else 0.3) * (0.6 if lightweight else 1.0) * (0.7 if max(h, w) < 400 else 1.0)
+    ela_rel = (0.28 if is_jpeg else 0.2) * (0.6 if lightweight else 1.0) * (0.7 if max(h, w) < 400 else 1.0)  # benchmark AUC≈0.67
     out_p, out_url = ctx.artifact_path(eid, f"{source_label}_ela.jpg")
     cv2.imwrite(str(out_p), fx.heat_overlay(bgr, ela, regions), [cv2.IMWRITE_JPEG_QUALITY, 88])
     summary.setdefault("artifacts", {})["ela"] = out_url
@@ -210,7 +210,7 @@ def analyze_image(ctx: AnalysisContext, ev: dict, path: Path, *, source_label: s
         cv2.imwrite(str(out_p), fx.heat_overlay(bgr, np.abs(nz), nregions, color=(255, 200, 0)),
                     [cv2.IMWRITE_JPEG_QUALITY, 88])
         summary["artifacts"]["noise"] = nurl
-        nrel = 0.4 if max(h, w) >= 400 else 0.25
+        nrel = 0.25 if max(h, w) >= 400 else 0.18  # benchmark AUC≈0.67
         if nregions:
             top = nregions[0]
             s = clamp(0.3 + 0.04 * (top["mean_z"] - 3.8) + min(0.15, top["area_frac"] * 2), 0.3, 0.8)
@@ -282,27 +282,8 @@ def analyze_image(ctx: AnalysisContext, ev: dict, path: Path, *, source_label: s
     # ---------------- pretrained models ----------------------------------------
     faces = fx.detect_faces(gray)
     summary["faces"] = [list(f) for f in faces]
-    if not lightweight:
-        p_ai = models.ai_image_prob(rgb) if ctx.models_on("AI-image classifier") else False
-        if p_ai is False:
-            pass
-        elif p_ai is None:
-            ctx.limit(f"AI-image classifier unavailable ({models.model_error('ai_image')}); relying on classical detectors.")
-        else:
-            summary["ai_image_prob"] = round(p_ai, 4)
-            rel = 0.45
-            if p_ai >= 0.6:
-                f = ctx.finding(modality, eid, "synthetic-generation", "Classifier: likely AI-generated imagery",
-                                f"A pretrained Swin classifier ({models.MODELS['ai_image']}) assigns {p_ai:.0%} probability "
-                                "that the image is synthetic.", {"type": "global"}, p_ai, rel, "ai_image_model",
-                                limitations="Trained on older generators; heavy compression, filters and art styles cause "
-                                            "false positives; newer generators may evade it.",
-                                alternatives=["Stylised photo / heavy filter", "Digital artwork"])
-                ctx.signal("ai_image_model", modality, eid, p_ai, rel, f"P(synthetic) = {p_ai:.2f}", [f["id"]],
-                           label="AI-image classifier")
-            else:
-                ctx.signal("ai_image_model", modality, eid, p_ai, rel, f"P(synthetic) = {p_ai:.2f}",
-                           label="AI-image classifier")
+    if not lightweight and ctx.models_on("AI-image ensemble"):
+        _ai_ensemble_and_tiles(ctx, ev, rgb, bgr, summary, modality, source_label)
         if faces:
             crops = []
             for box in faces:
@@ -332,4 +313,189 @@ def analyze_image(ctx: AnalysisContext, ev: dict, path: Path, *, source_label: s
                     ctx.signal("face_deepfake_model", modality, eid, pmax, rel,
                                f"max P(deepfake) over {len(faces)} face(s) = {pmax:.2f}", label="Face deepfake classifier")
     summary["dhash"] = fx.dhash(gray).astype(int).tolist()
+    if not lightweight:
+        _deep_metadata(ctx, ev, raw, pil, summary, modality)
+        _manipulation(ctx, ev, rgb, bgr, summary, modality, source_label)
+        summary["scores"] = _image_scores(ctx, eid, summary)
     return summary
+
+
+# ------------------------------------------------------------------------------------------------------------
+def _ai_ensemble_and_tiles(ctx, ev, rgb, bgr, summary, modality, label):
+    from .. import detectors
+    eid = ev["id"]
+    res = detectors.AI_IMAGE.predict([rgb])
+    if res["p"] is None:
+        ctx.limit(f"AI-image detectors unavailable ({detectors.errors()}).")
+        return
+    p = float(res["p"][0])
+    parts = {k: round(float(v[0]), 3) for k, v in res["parts"].items()}
+    cal = detectors.AI_IMAGE.calib or {}
+    acc = (cal.get("lodo") or {}).get("acc@0.5")
+    summary["ai_ensemble"] = {"p": round(p, 4), "parts": parts, "calibrated": res["calibrated"]}
+    summary["ai_image_prob"] = round(p, 4)
+    rel = 0.85 if res["calibrated"] else 0.5
+    desc = (f"A calibrated ensemble of {len(parts)} detectors ({', '.join(parts)}) estimates a {p:.0%} probability that "
+            f"this picture was produced by an AI image generator."
+            + (f" On held-out public benchmarks this ensemble is {acc:.0%} accurate." if acc else ""))
+    if p >= 0.5:
+        f = ctx.finding(modality, eid, "synthetic-generation", "AI-generated image", desc, {"type": "global"}, p, rel,
+                        "ai_ensemble", limitations="Weakest on paintings/illustrations and heavily filtered photos; brand-new "
+                                                   "generators can evade it.",
+                        alternatives=["Digital artwork or heavy stylistic filter", "Very aggressive phone 'AI enhance' processing"])
+        ctx.signal("ai_ensemble", modality, eid, p, rel, f"Calibrated P(AI-generated) = {p:.2f}", [f["id"]], label="AI-image ensemble",
+                   extra={"parts": parts})
+    else:
+        ctx.signal("ai_ensemble", modality, eid, p, rel, f"Calibrated P(AI-generated) = {p:.2f}", label="AI-image ensemble",
+                   extra={"parts": parts})
+
+    # ---- tile heatmap: AI used on part of a real photo (inpainting / generative fill) ----
+    cf = detectors.get("CommunityForensics ViT")
+    if cf is None:
+        return
+    im = rgb
+    if max(im.size) > 1536:
+        s = 1536 / max(im.size)
+        im = im.resize((int(im.width * s), int(im.height * s)), Image.BICUBIC)
+    W, H = im.size
+    T, S = 384, 288
+    if W < T or H < T:
+        return
+    xs = list(range(0, W - T + 1, S)) or [0]
+    ys = list(range(0, H - T + 1, S)) or [0]
+    if xs[-1] != W - T:
+        xs.append(W - T)
+    if ys[-1] != H - T:
+        ys.append(H - T)
+    boxes = [(x, y) for y in ys for x in xs]
+    tiles = [im.crop((x, y, x + T, y + T)) for x, y in boxes]
+    tp = cf.predict(tiles, crop=False)
+    heat = np.zeros((H, W), np.float32)
+    cnt = np.zeros((H, W), np.float32)
+    for (x, y), v in zip(boxes, tp):
+        heat[y:y + T, x:x + T] += v
+        cnt[y:y + T, x:x + T] += 1
+    heat /= np.maximum(cnt, 1)
+    top = float(tp.max())
+    frac = float((tp >= 0.8).mean())
+    hidden = top * (1 - p) if (top >= 0.8 and frac < 0.6) else top * (1 - p) * 0.5
+    summary["ai_tiles"] = {"n": len(tp), "top": round(top, 3), "flagged_frac": round(frac, 3), "p": round(hidden, 3)}
+    sc = (H and rgb.height / H) or 1
+    out = fx.heat_overlay(cv2.resize(bgr, (W, H)) if (W, H) != (bgr.shape[1], bgr.shape[0]) else bgr, heat, alpha=0.5)
+    path, url = ctx.artifact_path(eid, f"{label}_aitiles.jpg")
+    cv2.imwrite(str(path), out, [cv2.IMWRITE_JPEG_QUALITY, 86])
+    summary.setdefault("artifacts", {})["ai_tiles"] = url
+    if hidden >= 0.5:
+        hot = [(x, y, v) for (x, y), v in zip(boxes, tp) if v >= 0.8]
+        regs = [{"bbox": [int(x * sc), int(y * sc), int(T * sc), int(T * sc)], "label": f"AI {v:.0%}"} for x, y, v in hot[:4]]
+        f = ctx.finding(modality, eid, "synthetic-generation", "AI-generated patch inside a real-looking photo",
+                        f"Scanning the picture in {len(tp)} overlapping tiles, {len(hot)} tile(s) score up to {top:.0%} AI-generated "
+                        f"while the picture as a whole scores {p:.0%}. This pattern fits generative fill or AI inpainting used "
+                        "to add, remove or change part of a real photo.",
+                        {"type": "regions", "regions": regs, "width": rgb.width, "height": rgb.height}, hidden, 0.6, "ai_tiles", [url],
+                        limitations="Smooth skies, bokeh and heavily processed areas can raise individual tiles.",
+                        alternatives=["Phone portrait-mode blur", "Strong local denoising"])
+        ctx.signal("ai_tiles", modality, eid, hidden, 0.6, f"Top tile {top:.2f} vs global {p:.2f}", [f["id"]], label="AI tile scan")
+    else:
+        ctx.signal("ai_tiles", modality, eid, hidden, 0.5, f"No localised AI patch (top tile {top:.2f}).", label="AI tile scan")
+
+
+def _deep_metadata(ctx, ev, raw, pil, summary, modality):
+    from .metadata import analyze_metadata
+    eid = ev["id"]
+    md = analyze_metadata(raw, pil, summary.get("exif") or {})
+    summary["metadata_deep"] = {k: v for k, v in md.items() if k != "observations"}
+    best = 0.0
+    for o in md["observations"]:
+        best = max(best, o["strength"])
+        if o["strength"] < 0.4:
+            continue
+        arts = []
+        if o["kind"] == "thumb_mismatch" and o.get("diff") is not None:
+            d = o["diff"]
+            vis = cv2.applyColorMap(np.clip(d / (np.percentile(d, 99) + 1e-6) * 255, 0, 255).astype(np.uint8), cv2.COLORMAP_INFERNO)
+            path, url = ctx.artifact_path(eid, "thumbnail_diff.png")
+            cv2.imwrite(str(path), cv2.resize(vis, (vis.shape[1] * 3, vis.shape[0] * 3), interpolation=cv2.INTER_NEAREST))
+            arts.append(url)
+        cat = "synthetic-generation" if o["kind"] in ("c2pa_ai", "iptc_ai", "xmp_ai_tool", "exif_ai_software") else "metadata"
+        f = ctx.finding(modality, eid, cat, {"thumb_mismatch": "EXIF preview doesn't match the picture",
+                                             "xmp_history": "Edit history recorded in the file",
+                                             "exif_injected": "Camera data looks added by software",
+                                             "c2pa_ai": "Content Credentials name an AI tool",
+                                             "iptc_ai": "File declares itself AI-generated",
+                                             "xmp_ai_tool": "AI tool recorded in the file",
+                                             "exif_ai_software": "AI tool recorded in EXIF"}.get(o["kind"], "Metadata observation"),
+                        o["text"], {"type": "metadata", "fields": [o["kind"]]}, o["strength"], 0.8, "metadata_deep", arts,
+                        limitations="Metadata can be edited by anyone; it supports but never replaces pixel analysis.")
+        ctx.signal("metadata_deep", modality, eid, o["strength"], 0.8, o["text"][:140], [f["id"]], label="Deep metadata")
+        if cat == "synthetic-generation":
+            summary["generator_evidence"] = max(summary.get("generator_evidence", 0), o["strength"])
+    summary["metadata_strength"] = best
+
+
+def _manipulation(ctx, ev, rgb, bgr, summary, modality, label):
+    """Learned forgery detection (TruFor) when installed; otherwise the calibrated classical model (weak, AUC≈0.67)."""
+    from . import trufor
+    eid = ev["id"]
+    out = None
+    if ctx.opts.get("models", True) and trufor.available():
+        try:
+            out = trufor.analyze(rgb)
+        except Exception as e:  # pragma: no cover
+            ctx.limit(f"TruFor forgery detector failed ({e}).")
+    if out is not None:
+        p = out["score"]
+        hm = out["map"]
+        summary["trufor"] = {"score": round(p, 4), "area": round(float((hm > 0.5).mean()), 4)}
+        vis = fx.heat_overlay(cv2.resize(bgr, (hm.shape[1], hm.shape[0])), hm, alpha=0.55)
+        path, url = ctx.artifact_path(eid, f"{label}_trufor.jpg")
+        cv2.imwrite(str(path), vis, [cv2.IMWRITE_JPEG_QUALITY, 86])
+        summary.setdefault("artifacts", {})["trufor"] = url
+        sc = rgb.width / hm.shape[1]
+        mask = (hm > 0.5).astype(np.uint8)
+        n, lab, stats, _ = cv2.connectedComponentsWithStats(mask)
+        regs = sorted([stats[i] for i in range(1, n) if stats[i][4] > 0.002 * mask.size], key=lambda s: -s[4])[:4]
+        regions = [{"bbox": [int(s[0] * sc), int(s[1] * sc), int(s[2] * sc), int(s[3] * sc)], "label": "edited"} for s in regs]
+        if p >= 0.5:
+            f = ctx.finding(modality, eid, "compositing", "Manipulated region detected (TruFor)",
+                            f"TruFor, a forgery detector trained on spliced, copy-moved and AI-inpainted photos (CVPR 2023), gives "
+                            f"{p:.0%} that this picture was manipulated and marks {summary['trufor']['area']:.0%} of it as altered.",
+                            {"type": "regions", "regions": regions, "width": rgb.width, "height": rgb.height}, p, 0.75, "trufor", [url],
+                            limitations="Very strong compression or resizing after the edit weakens localisation.",
+                            alternatives=["Heavy local retouching for aesthetics"])
+            ctx.signal("trufor", modality, eid, p, 0.75, f"TruFor integrity score {p:.2f}", [f["id"]], label="TruFor forgery detector")
+        else:
+            ctx.signal("trufor", modality, eid, p, 0.75, f"TruFor integrity score {p:.2f} (no manipulation)", label="TruFor forgery detector")
+        return
+    calib = __import__("app.detectors", fromlist=["load_calib"]).load_calib("manipulation")
+    if calib:
+        feats = fx.classical_features(rgb)
+        x = (np.array([feats[k] for k in calib["features"]]) - np.array(calib["mean"])) / np.array(calib["scale"])
+        p = float(1 / (1 + np.exp(-(x @ np.array(calib["coef"]) + calib["intercept"]))))
+        summary["manip_classical"] = {"p": round(p, 4), "cv_auc": calib["cv"]["auc"]}
+        ctx.signal("manip_model", modality, eid, p, 0.3,
+                   f"Classical forensic model P(manipulated) = {p:.2f} (benchmark AUC {calib['cv']['auc']:.2f}: weak evidence)",
+                   label="Classical manipulation model")
+
+
+def _image_scores(ctx, eid, s) -> dict:
+    sig = {x["detector"]: x for x in ctx.signals if x["evidence_id"] == eid}
+
+    def sc(d, default=None):
+        return sig[d]["score"] if d in sig else default
+    gen = s.get("generator_evidence", 0)
+    ai = max(sc("ai_ensemble", 0) or 0, gen, sc("generator_metadata", 0) if (sc("generator_metadata", 0) or 0) >= 0.85 else 0)
+    if "ai_ensemble" not in sig and not gen:
+        ai = None
+    cm = sc("copy_move", 0) or 0
+    tru = sc("trufor")
+    md = s.get("metadata_strength", 0)
+    edit_md = max(md if md >= 0.45 else 0, sc("exif_software", 0) if (sc("exif_software", 0) or 0) >= 0.55 else 0)
+    classical = sc("manip_model")
+    manipulation = max(tru or 0, edit_md, (classical if (classical or 0) >= 0.8 else 0), cm if cm >= 0.6 else 0)
+    if tru is None and classical is None and not edit_md and cm < 0.6:
+        manipulation = min(0.35, (classical or 0.3))
+    compositing = max(tru or 0, cm if cm >= 0.6 else 0) if (tru is not None or cm >= 0.6) else min(0.35, cm)
+    face = sc("face_ensemble", sc("face_deepfake_model"))
+    return {"ai_generated": ai, "face_swap": face, "manipulation": round(manipulation, 3), "compositing": round(compositing, 3),
+            "hidden_ai": sc("ai_tiles"), "metadata": round(max(md, 0.3 if not s.get("exif") else 0.1), 3)}

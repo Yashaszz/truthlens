@@ -178,6 +178,44 @@ def copy_move(gray: np.ndarray, max_side: int = 1200) -> dict | None:
             "pairs": [[*map(float, p), *map(float, q)] for p, q in zip(src[:60], dst[:60])]}
 
 
+MANIP_FEATURES = ["ela_top", "ela_area", "ela_p99", "ela_spread", "noise_top", "noise_area", "noise_p99",
+                  "cm_matches", "grid_max", "grid_misaligned", "blockiness_var"]
+
+
+def classical_features(pil: Image.Image, max_side: int = 1024) -> dict:
+    """Compact numeric description of local inconsistencies, used by the calibrated manipulation model."""
+    rgb = pil.convert("RGB")
+    if max(rgb.size) > max_side:
+        s = max_side / max(rgb.size)
+        rgb = rgb.resize((max(16, int(rgb.width * s)), max(16, int(rgb.height * s))), Image.BILINEAR)
+    bgr = to_bgr(rgb)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    B = 16
+    tex = texture_map(gray)
+    ela = ela_map(rgb)
+    z = texture_normalised_z(block_mean(ela, B), block_mean(tex, B))
+    er = outlier_regions(z, B, thresh=4.0, min_blocks=3)
+    resid = gray.astype(np.float32) - cv2.medianBlur(gray, 3).astype(np.float32)
+    nz = texture_normalised_z(np.log(block_std(resid, B) + 0.5), block_mean(tex, B))
+    nr = outlier_regions(nz, B, thresh=3.8, min_blocks=3, two_sided=True)
+    cm = copy_move(gray)
+    g = jpeg_grid(gray)
+    blk = block_std(gray.astype(np.float32), 8)
+    return {
+        "ela_top": er[0]["mean_z"] if er else 0.0,
+        "ela_area": float(sum(r["area_frac"] for r in er)),
+        "ela_p99": float(np.percentile(z, 99)),
+        "ela_spread": float(np.std(z)),
+        "noise_top": nr[0]["mean_z"] if nr else 0.0,
+        "noise_area": float(sum(r["area_frac"] for r in nr)),
+        "noise_p99": float(np.percentile(np.abs(nz), 99)),
+        "cm_matches": float(cm["matches"]) if cm else 0.0,
+        "grid_max": float(max(g["strength_x"], g["strength_y"])),
+        "grid_misaligned": float(g["present"] and (g["phase_x"] != 7 or g["phase_y"] != 7)),
+        "blockiness_var": float(np.std(np.log(blk + 1))),
+    }
+
+
 def dhash(img_gray: np.ndarray, size: int = 16) -> np.ndarray:
     s = cv2.resize(img_gray, (size + 1, size), interpolation=cv2.INTER_AREA)
     return (s[:, 1:] > s[:, :-1]).flatten()

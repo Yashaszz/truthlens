@@ -28,6 +28,11 @@ def _times(f: dict, limit: int = 4) -> str:
 PLAIN = {
     "generator_metadata": lambda f: "The file's own metadata says it was made with an AI generation tool.",
     "ai_image_model": lambda f: "An AI-image detector thinks this picture looks computer-generated.",
+    "ai_ensemble": lambda f: f"This picture was very likely made by an AI image generator ({f['score']:.0%}).",
+    "ai_tiles": lambda f: "Part of this photo looks AI-generated while the rest looks real, a sign of AI editing (generative fill or inpainting).",
+    "ai_frames": lambda f: f"The video frames carry AI-generator fingerprints ({f['score']:.0%}), so the footage itself looks AI-generated.",
+    "trufor": lambda f: "A forgery detector found an edited region in the picture and marks where it is.",
+    "metadata_deep": lambda f: f["description"].split(". ")[0] + ".",
     "face_deepfake_model": lambda f: ("A face looks digitally altered" + _times(f) + ".") if f["modality"] != "image"
     else "The face in this photo looks digitally altered.",
     "face_sharpness": lambda f: "The face is noticeably blurrier than its surroundings, which is common when a face is swapped in.",
@@ -174,11 +179,41 @@ def summarize(case: dict) -> dict | None:
     global_lims = 4  # first four limitations are the standing caveats
     not_checked = r["limitations"][global_lims:]
 
+    headline, subline, band = HEADLINE[o["band"]], HEADLINE_SUB[o["band"]], o["band"]
+    confidence_text = f"We are {certainty} about this, and {agreement}."
+    th = r.get("threats") or {}
+    v = th.get("verdict") or {}
+    if v.get("confidence") is not None:
+        conf = v["confidence"]
+        headline = v["label"]
+        band = ("strong" if v.get("fake") and conf >= 0.8 else "indicators" if v.get("fake") else
+                "none" if conf >= 0.6 and not v.get("lean") else "inconclusive" if v.get("lean") else "none")
+        where = names.get(v.get("evidence_id"))
+        if where and len(where) > 42:
+            where = where[:30] + "…" + where[-8:]
+        detected = [m["name"] for it in th.get("items", {}).values() for m in it["matrix"] if m["status"] == "detected"]
+        if v.get("fake"):
+            subline = (f"{conf:.0%} likely, based on {where}." if where else f"{conf:.0%} likely.") + \
+                      (f" Threats detected: {', '.join(dict.fromkeys(detected))}." if detected else "")
+        elif v.get("lean"):
+            subline = f"The evidence leans this way ({conf:.0%}). It's a close call, so the specific checks below matter."
+        else:
+            subline = f"{conf:.0%} likely genuine: none of the threat checks found manipulation."
+        confidence_text = ("Probabilities come from detectors calibrated on labelled public benchmarks "
+                           "(see the technical appendix for measured accuracy).")
+        for eid, it in th.get("items", {}).items():
+            iv = it["verdict"]
+            if eid in per_ev and iv.get("confidence") is not None:
+                per_ev[eid]["verdict"] = f"{iv['label']} · {iv['confidence']:.0%}"
+                per_ev[eid]["band"] = ("strong" if iv.get("fake") and iv["confidence"] >= 0.8 else "indicators" if iv.get("fake")
+                                       else "inconclusive" if iv.get("lean") else "none")
+
     return {
-        "headline": HEADLINE[o["band"]],
-        "subline": HEADLINE_SUB[o["band"]],
-        "band": o["band"],
-        "confidence_text": f"We are {certainty} about this, and {agreement}.",
+        "headline": headline,
+        "subline": subline,
+        "band": band,
+        "verdict": v or None,
+        "confidence_text": confidence_text,
         "driven_by": names.get(o.get("driven_by")) if o.get("driven_by") else None,
         "found": found[:6],
         "minor_count": len(minor),

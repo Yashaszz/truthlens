@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { api } from "../api.jsx";
 import { StatusTag } from "./CaseFiles.jsx";
 
 const KINDS = [
@@ -26,6 +27,31 @@ const PRINCIPLES = [
   ["Innocent explanations included", "Each finding lists what else could cause it, such as compression, filters or a noisy room."],
   ["The human decides", "Examiner decisions and notes go into the chain of custody alongside the machine's results."],
 ];
+
+function AccuracyStrip() {
+  const [a, setA] = useState(null);
+  useEffect(() => { api.accuracy().then(setA).catch(() => {}); }, []);
+  if (!a || !a.ai_image) return null;
+  const cell = (k, title, sub) => a[k] && (
+    <div>
+      <div className="label">{title}</div>
+      <div className="n">{(a[k].heldout["acc@0.5"] * 100).toFixed(1)}%</div>
+      <div className="small">accuracy on held-out data · AUC {a[k].heldout.auc.toFixed(2)}</div>
+      <div className="was">{sub}</div>
+    </div>
+  );
+  const ps = a.ai_image.per_set || {};
+  return (
+    <section className="section">
+      <div className="section-head"><h2>Measured, not guessed</h2><span className="aside small muted">Benchmarked on public labelled datasets the detectors weren't tuned on</span></div>
+      <div className="acc-grid">
+        {cell("ai_image", "AI-generated images", `${Math.round((ps.GenImage?.["acc@0.5"] || 0) * 100)}% on GenImage, ${Math.round((ps.CommunityForensics?.["acc@0.5"] || 0) * 100)}% on 2025 generators · previous model: 60%`)}
+        {cell("face_swap", "Face swaps & synthetic faces", "Trained head on Community Forensics features · previous model: 48% (chance)")}
+        {cell("voice", "Cloned voices", "Real-world deepfakes + ElevenLabs clones · previous model: AUC 0.40")}
+      </div>
+    </section>
+  );
+}
 
 export default function Landing({ cases, health, onDemo }) {
   const done = cases.filter((c) => c.status === "complete");
@@ -77,6 +103,8 @@ export default function Landing({ cases, health, onDemo }) {
           </div>
         ))}
       </section>
+
+      <AccuracyStrip />
 
       <section className="section">
         <div className="section-head"><h2>How a check works</h2><span className="aside small muted">Usually under a minute on a laptop GPU</span></div>

@@ -23,13 +23,18 @@ Text  ──► quotes vs transcript · caption topic vs speech · dates vs meta
           transcripts · framing language ───────────────────────────────────────────────────┘                          band
 ```
 
-**Pretrained models (no training required):**
-| Purpose | Model |
-|---|---|
-| Face deepfake (ViT) | `prithivMLmods/Deep-Fake-Detector-v2-Model` |
-| AI-generated image (Swin) | `umm-maybe/AI-image-detector` |
-| Synthetic voice (wav2vec2) | `MelodyMachine/Deepfake-audio-detection-V2` |
-| Speech-to-text + word timing | `faster-whisper` (`small`) |
+**Detectors (chosen by benchmark, calibrated on public labelled data; see [EVALUATION.md](EVALUATION.md)):**
+| Threat | Shipped detector | Held-out accuracy |
+|---|---|---|
+| AI-generated images | Calibrated ensemble: CommunityForensics ViT (CVPR 2025) + haywoodsloan SwinV2 + umm-maybe | **86.2 %** (AUC 0.93); 96 % on photoreal generators |
+| Face swaps / synthetic faces | Trained face-swap head on CommunityForensics ViT features | **87.3 %** (AUC 0.94) |
+| Cloned voices | Calibrated ensemble: mo-thecreator wav2vec2 + Gustking XLSR-large | **82.3 %** (AUC 0.91) cross-dataset |
+| Manipulation / local edits | TruFor (optional, `scripts/setup_trufor.py`) or calibrated classical forensics | classical: AUC 0.67 (weak, down-weighted) |
+| Speech-to-text + word timing | faster-whisper `small` | – |
+
+Each file gets a **threat matrix** (10 image threats: AI-generated, face swap, manipulation, compositing, hidden AI
+edits, impersonation, misinformation, harassment, fake evidence, metadata manipulation, plus equivalents for video
+and audio) and a **decisive verdict** such as "AI-generated · 99 %" or "Authentic · 84 %".
 
 Every model failure degrades gracefully: the classical detectors still run and the report lists the limitation.
 

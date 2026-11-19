@@ -1,6 +1,14 @@
-# Install torch first with CUDA (or omit the index URL for CPU):
-#   pip install torch --index-url https://download.pytorch.org/whl/cu124
-torch
+# Install torch + torchvision together first, matching CUDA build (or omit the index URL for CPU):
+#   pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu124
+# Pin both: installing timm without a matching torchvision silently replaces CUDA torch with a CPU build.
+torch==2.6.0
+torchvision==0.21.0
+timm
+yacs
+tqdm
+pyarrow
+pandas
+scikit-learn
 fastapi
 uvicorn[standard]
 python-multipart

@@ -7,3 +7,5 @@ frontend/dist/
 .claude/
 samples/
 *.tmp
+backend/eval/data/
+backend/third_party/

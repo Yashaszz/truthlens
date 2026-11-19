@@ -7,6 +7,10 @@ const WORD = { strong: "Strong signs", indicators: "Possible manipulation", inco
 export function StatusTag({ c }) {
   if (c.status === "failed") return <span className="tag strong">Failed</span>;
   if (c.status !== "complete") return <span className="small"><span className="spin" style={{ width: 10, height: 10, verticalAlign: -1 }} /> Checking…</span>;
+  if (c.verdict && c.verdict_conf != null) {
+    const cls = c.verdict_fake ? (c.verdict_conf >= 0.8 ? "strong" : "moderate") : c.verdict.startsWith("Leaning") ? "weak" : "ok";
+    return <span className={`tag ${cls}`}>{c.verdict} · {Math.round(c.verdict_conf * 100)}%</span>;
+  }
   return c.assessment ? <span className={`tag b-${c.assessment}`}>{WORD[c.assessment]}</span> : null;
 }
 

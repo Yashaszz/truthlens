@@ -59,30 +59,46 @@ def _prob(result: list[dict], label: str) -> float:
     return float("nan")
 
 
+# The three entry points below now route through the benchmarked, calibrated detectors in app/detectors.py
+# (the original single-model checkpoints scored AUC 0.40–0.74 on held-out benchmarks and were replaced).
+
 def face_deepfake_probs(images) -> list[float] | None:
-    """P(Deepfake) for each face crop (PIL images)."""
-    p = _pipe("face_deepfake", "image-classification")
-    if p is None or not images:
-        return None if p is None else []
-    out = p(images, batch_size=16)
-    return [_prob(r, "Deepfake") for r in out]
+    """P(face swapped / synthetic) per face crop: face-swap head on Community Forensics ViT features."""
+    if not ENABLE_MODELS:
+        _errors["face_deepfake"] = "disabled by configuration"
+        return None
+    from . import detectors
+    if not images:
+        return []
+    p = detectors.FACE.predict(images)
+    if p is None:
+        _errors["face_deepfake"] = str(detectors.errors())
+        return None
+    return [float(x) for x in p]
 
 
 def ai_image_prob(image) -> float | None:
-    """P(artificial) for a whole image."""
-    p = _pipe("ai_image", "image-classification")
-    if p is None:
+    """Calibrated P(AI-generated) for a whole image (ensemble)."""
+    if not ENABLE_MODELS:
         return None
-    return _prob(p(image), "artificial")
+    from . import detectors
+    r = detectors.AI_IMAGE.predict([image])
+    return None if r["p"] is None else float(r["p"][0])
 
 
 def audio_spoof_probs(chunks, sr: int = 16000) -> list[float] | None:
-    """P(fake) for each mono float32 waveform chunk sampled at 16 kHz."""
-    p = _pipe("audio_spoof", "audio-classification")
-    if p is None or not chunks:
-        return None if p is None else []
-    out = p([{"raw": c, "sampling_rate": sr} for c in chunks], batch_size=8)
-    return [_prob(r, "fake") for r in out]
+    """Calibrated P(synthetic voice) per 16 kHz mono chunk (mo-thecreator + Gustking XLSR ensemble)."""
+    if not ENABLE_MODELS:
+        _errors["audio_spoof"] = "disabled by configuration"
+        return None
+    from . import detectors
+    if not chunks:
+        return []
+    r = detectors.VOICE.predict(list(chunks))
+    if r["p"] is None:
+        _errors["audio_spoof"] = str(detectors.errors())
+        return None
+    return [float(x) for x in r["p"]]
 
 
 def _add_cuda_dlls():
@@ -193,9 +209,11 @@ def _warm_whisper():
 
 
 def status() -> dict:
+    from . import detectors
+    loaded = [k for k in ("face_deepfake", "ai_image", "audio_spoof", "whisper") if k in _warm["done"]]
     return {"enabled": ENABLE_MODELS, "device": device_name(), "models": MODELS,
-            "whisper": WHISPER_MODEL, "loaded": [k for k, v in _pipes.items() if v is not None],
-            "warmup": dict(_warm), "errors": dict(_errors)}
+            "whisper": WHISPER_MODEL, "loaded": loaded, "detectors_loaded": [k for k, v in detectors._cache.items() if v is not None],
+            "warmup": dict(_warm), "errors": {**dict(_errors), **detectors.errors()}}
 
 
 def model_error(key: str) -> str | None:

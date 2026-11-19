@@ -24,13 +24,34 @@ def now() -> str:
     return dt.datetime.now().isoformat(timespec="seconds")
 
 
-def modality_for(filename: str) -> str | None:
-    return EXT_MODALITY.get(Path(filename).suffix.lower())
+def sniff(head: bytes) -> str | None:
+    """Recognise the media type from the first bytes when the filename has no usable extension."""
+    if head[:3] == b"\xff\xd8\xff" or head[:8] == b"\x89PNG\r\n\x1a\n" or head[:4] in (b"RIFF",) and head[8:12] == b"WEBP" \
+            or head[:2] in (b"BM",) or head[:4] in (b"II*\x00", b"MM\x00*"):
+        return "image"
+    if head[4:8] == b"ftyp":
+        return "audio" if head[8:12] in (b"M4A ", b"M4B ") else "video"
+    if head[:4] == b"\x1aE\xdf\xa3" or head[:4] == b"RIFF" and head[8:12] == b"AVI ":
+        return "video"
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE" or head[:3] == b"ID3" or head[:4] in (b"fLaC", b"OggS") or head[:2] == b"\xff\xfb":
+        return "audio"
+    return None
+
+
+def modality_for(filename: str, head: bytes | None = None) -> str | None:
+    m = EXT_MODALITY.get(Path(filename).suffix.lower())
+    return m or (sniff(head) if head else None)
+
+
+SNIFF_EXT = {"image": ".jpg", "video": ".mp4", "audio": ".wav"}
 
 
 def safe_name(name: str) -> str:
-    name = Path(name).name
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", name)[:120] or "file"
+    """Sanitise and shorten, always keeping the extension (long names used to lose it)."""
+    p = Path(name)
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", p.stem)[:100] or "file"
+    ext = re.sub(r"[^A-Za-z0-9.]+", "", p.suffix)[:8]
+    return stem + ext
 
 
 def sha256_file(path: Path) -> str:
@@ -86,11 +107,16 @@ def new_case(title: str, context: str, examiner: str) -> dict:
 
 
 def ingest_file(case: dict, filename: str, fileobj) -> dict:
-    modality = modality_for(filename)
+    head = fileobj.read(16)
+    fileobj.seek(0)
+    modality = modality_for(filename, head)
     if modality is None:
         raise ValueError(f"Unsupported file type: {filename}")
     eid = f"E-{len(case['evidence']) + 1:03d}"
-    stored = case_dir(case["id"]) / "evidence" / f"{eid}_{safe_name(filename)}"
+    name = safe_name(filename)
+    if not EXT_MODALITY.get(Path(name).suffix.lower()):
+        name += SNIFF_EXT.get(modality, "")  # give extension-less uploads a working extension for decoders
+    stored = case_dir(case["id"]) / "evidence" / f"{eid}_{name}"
     h = hashlib.sha256()
     size = 0
     with open(stored, "wb") as out:
@@ -166,6 +192,9 @@ def list_cases() -> list[dict]:
             "evidence_count": len(c["evidence"]),
             "modalities": sorted({e["modality"] for e in c["evidence"]}),
             "assessment": (r.get("fusion") or {}).get("overall", {}).get("band"),
+            "verdict": ((r.get("threats") or {}).get("verdict") or {}).get("label"),
+            "verdict_conf": ((r.get("threats") or {}).get("verdict") or {}).get("confidence"),
+            "verdict_fake": ((r.get("threats") or {}).get("verdict") or {}).get("fake"),
             "score": (r.get("fusion") or {}).get("overall", {}).get("score"),
             "findings": len(r.get("findings") or []),
             "duration_s": r.get("duration_s"),

@@ -63,6 +63,40 @@ def health():
             "samples_ready": (SAMPLES / "tts_speech.wav").exists(), **models.status()}
 
 
+@app.get("/api/accuracy")
+def accuracy():
+    """Measured accuracy of the shipped detectors (written by the backend/eval benchmark scripts)."""
+    from .detectors import load_calib
+    from . import analyzers
+    out = {}
+    ai = load_calib("ai_image")
+    if ai:
+        out["ai_image"] = {"name": "AI-generated images", "models": ai["models"], "heldout": ai["lodo"], "per_set": ai["lodo_per_set"],
+                           "baseline": ai.get("single_best_lodo"), "protocol": "Leave-one-dataset-out over GenImage, CommunityForensics-Eval, WebArt"}
+    fh = load_calib("face_head")
+    if fh:
+        out["face_swap"] = {"name": "Face swaps & synthetic faces", "models": [fh["backbone"] + " + trained head"], "heldout": fh["test"],
+                            "baseline": fh.get("baseline_test"), "per_group": fh.get("per_group"),
+                            "protocol": "Trained on DeepFakeFace train split, tested on its separate test split"}
+    vo = load_calib("voice")
+    if vo:
+        out["voice"] = {"name": "Cloned / synthetic voices", "models": vo["models"], "heldout": vo["cross_dataset"], "per_set": vo["per_set"],
+                        "protocol": "Cross-dataset: calibrated on one of In-the-Wild / ElevenLabs set, tested on the other"}
+    mp = load_calib("manipulation")
+    if mp:
+        out["manipulation_classical"] = {"name": "Classical forensics (ELA, noise, JPEG, copy-move)", "heldout": mp["cv"],
+                                         "per_set": mp.get("by_dataset"), "protocol": "5-fold CV on CASIA/IMD2020/OpenSDID/TGIF tampering benchmarks"}
+    from pathlib import Path as _P
+    res = _P(__file__).resolve().parents[1] / "eval" / "results"
+    for key, fname in (("hidden_ai", "hidden_ai_summary.json"), ("trufor", "trufor_summary.json")):
+        f = res / fname
+        if f.exists():
+            out[key] = json.loads(f.read_text())
+    from .analyzers import trufor as _tf
+    out["trufor_installed"] = _tf.available()
+    return out
+
+
 @app.get("/api/cases")
 def cases():
     return evs.list_cases()
@@ -84,7 +118,11 @@ def _parse_options(raw: str) -> dict:
 @app.post("/api/cases")
 async def create_case(files: list[UploadFile] = File(...), context: str = Form(""), title: str = Form(""),
                       examiner: str = Form(""), options: str = Form("")):
-    bad = [f.filename for f in files if not evs.modality_for(f.filename or "")]
+    def _kind(f):
+        head = f.file.read(16)
+        f.file.seek(0)
+        return evs.modality_for(f.filename or "", head)
+    bad = [f.filename for f in files if not _kind(f)]
     if bad:
         raise HTTPException(400, f"Unsupported file type(s): {', '.join(bad)}")
     opts = _parse_options(options)

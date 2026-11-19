@@ -19,6 +19,7 @@ from .common import AnalysisContext
 from .config import APP_VERSION, MODELS, WHISPER_MODEL, resolve_options
 from .correlate import correlate
 from .fusion import fuse
+from .threats import case_threats, derive_scores
 from .report import recommendations, GLOBAL_LIMITATIONS
 
 log = logging.getLogger("truthlens.pipeline")
@@ -133,6 +134,14 @@ def run_analysis(case_id: str):
         ctx.log("correlate", f"{len(links)} cross-modal link(s) established")
 
         _progress(case, "report", 93, "Writing the report")
+        for ev in case["evidence"]:
+            s = summaries.get(ev["id"])
+            if s is not None and ev["modality"] in ("video", "audio") and "scores" not in s:
+                s["scores"] = derive_scores(ev["modality"], ev["id"], ctx.signals, s)
+        from .plain import finding_plain
+        for f in ctx.findings:
+            f["plain"] = finding_plain(f)
+        threat = case_threats(case, summaries, ctx.findings, ctx.signals)
         fusion = fuse(ctx.signals, ctx.findings)
         integrity = evs.verify_integrity(case)
         ctx.findings.sort(key=lambda f: -(f["score"] * (0.5 + f["confidence"])))
@@ -142,6 +151,7 @@ def run_analysis(case_id: str):
             "engine": {"version": APP_VERSION, "models": MODELS, "whisper": WHISPER_MODEL,
                        "device": models.device_name(), "model_status": models.status()},
             "fusion": fusion,
+            "threats": threat,
             "findings": ctx.findings,
             "signals": ctx.signals,
             "links": links,
@@ -156,6 +166,7 @@ def run_analysis(case_id: str):
         case.setdefault("runs", []).append({
             "at": evs.now(), "mode": opts["mode"], "models": opts["models"], "transcribe": opts["transcribe"],
             "score": fusion["overall"]["score"], "band": fusion["overall"]["band"],
+            "verdict": threat["verdict"].get("label"), "confidence": threat["verdict"].get("confidence"),
             "findings": len(ctx.findings), "duration_s": case["results"]["duration_s"]})
         case["status"] = "complete"
         case["progress"] = {"stage": "review", "pct": 100, "message": "Analysis complete: ready for review"}

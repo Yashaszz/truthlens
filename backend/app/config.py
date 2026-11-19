@@ -9,10 +9,12 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 APP_VERSION = "0.1.0"
 
 # Pretrained checkpoints (verified on HuggingFace). No training is done in this prototype.
+# Chosen by benchmark (backend/eval, see EVALUATION.md); combined by calibrated ensembles in app/detectors.py.
 MODELS = {
-    "face_deepfake": "prithivMLmods/Deep-Fake-Detector-v2-Model",   # ViT, labels: Realism / Deepfake
-    "ai_image": "umm-maybe/AI-image-detector",                     # Swin, labels: artificial / human
-    "audio_spoof": "MelodyMachine/Deepfake-audio-detection-V2",    # wav2vec2, labels: fake / real
+    "ai_image": "Ensemble: CommunityForensics ViT + haywoodsloan SwinV2 + umm-maybe (calibrated)",
+    "face_deepfake": "Face-swap head on CommunityForensics ViT (trained on DeepFakeFace)",
+    "audio_spoof": "Ensemble: mo-thecreator wav2vec2 + Gustking XLSR-large (calibrated)",
+    "forgery": "TruFor (CVPR 2023) when installed, else calibrated classical forensics",
 }
 WHISPER_MODEL = os.getenv("TRUTHLENS_WHISPER", "small")
 
