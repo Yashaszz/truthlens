@@ -10,3 +10,4 @@ samples/
 backend/eval/data/
 backend/third_party/
 backend/.env
+frontend/.vercel/

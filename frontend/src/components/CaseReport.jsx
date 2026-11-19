@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { api, Kind, KIND, scoreColor } from "../api.jsx";
+import { api, API, Kind, KIND, scoreColor } from "../api.jsx";
 import { MODE_INFO, useUI } from "../ui.jsx";
 import { Meter, Scale } from "./Charts.jsx";
 import ThreatMatrix, { VerdictMeter } from "./ThreatMatrix.jsx";
@@ -196,10 +196,10 @@ export default function CaseReport({ caseId, onDone }) {
             {r && ` · ${MODE_INFO[r.options?.mode || "standard"].name} check in ${r.duration_s} s`}{c.runs?.length > 1 && ` · run ${c.runs.length}`}</div>
         </div>
         <div className="actions">
-          {r && <a className="btn ink" href={`/api/cases/${c.id}/report.html?download=true`}>Download report</a>}
-          {r && <a className="btn" href={`/api/cases/${c.id}/report.html`} target="_blank" rel="noreferrer">Printable view</a>}
+          {r && <a className="btn ink" href={`${API}/api/cases/${c.id}/report.html?download=true`}>Download report</a>}
+          {r && <a className="btn" href={`${API}/api/cases/${c.id}/report.html`} target="_blank" rel="noreferrer">Printable view</a>}
           {(r || c.status === "failed") && <Recheck c={c} onStarted={load} />}
-          {r && <a className="btn ghost" href={`/api/cases/${c.id}/report.json`}>JSON</a>}
+          {r && <a className="btn ghost" href={`${API}/api/cases/${c.id}/report.json`}>JSON</a>}
           {(r || c.status === "failed") && <button className="btn ghost danger" onClick={del}>Delete</button>}
         </div>
       </div>

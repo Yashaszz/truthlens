@@ -36,7 +36,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="TruthLens", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-                   allow_methods=["*"], allow_headers=["*"])
+                   allow_origin_regex=r"https://[a-z0-9-]+\.vercel\.app", allow_methods=["*"], allow_headers=["*"])
 @app.middleware("http")
 async def no_stale_shell(request, call_next):
     # index.html must always be revalidated so a rebuilt UI (new hashed assets) is picked up immediately

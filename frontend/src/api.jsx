@@ -1,3 +1,7 @@
+// Analysis engine address: same origin by default; set VITE_API_BASE at build time when the website is hosted
+// separately (e.g. on Vercel) and the engine runs elsewhere.
+export const API = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
+
 const j = async (r) => {
   if (!r.ok) {
     let msg = r.statusText;
@@ -8,23 +12,23 @@ const j = async (r) => {
 };
 
 export const api = {
-  health: () => fetch("/api/health").then(j),
-  cases: () => fetch("/api/cases").then(j),
-  getCase: (id) => fetch(`/api/cases/${id}`).then(j),
-  createCase: (form) => fetch("/api/cases", { method: "POST", body: form }).then(j),
-  demo: () => fetch("/api/demo", { method: "POST" }).then(j),
-  accuracy: () => fetch("/api/accuracy").then(j),
-  online: (id) => fetch(`/api/cases/${id}/online`, { method: "POST" }).then(j),
-  rerun: (id, body) => fetch(`/api/cases/${id}/rerun`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(j),
-  patchCase: (id, body) => fetch(`/api/cases/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(j),
-  deleteCase: (id) => fetch(`/api/cases/${id}`, { method: "DELETE" }).then(j),
+  health: () => fetch(`${API}/api/health`).then(j),
+  cases: () => fetch(`${API}/api/cases`).then(j),
+  getCase: (id) => fetch(`${API}/api/cases/${id}`).then(j),
+  createCase: (form) => fetch(`${API}/api/cases`, { method: "POST", body: form }).then(j),
+  demo: () => fetch(`${API}/api/demo`, { method: "POST" }).then(j),
+  accuracy: () => fetch(`${API}/api/accuracy`).then(j),
+  online: (id) => fetch(`${API}/api/cases/${id}/online`, { method: "POST" }).then(j),
+  rerun: (id, body) => fetch(`${API}/api/cases/${id}/rerun`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(j),
+  patchCase: (id, body) => fetch(`${API}/api/cases/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(j),
+  deleteCase: (id) => fetch(`${API}/api/cases/${id}`, { method: "DELETE" }).then(j),
   review: (id, fid, body) =>
-    fetch(`/api/cases/${id}/findings/${fid}`, {
+    fetch(`${API}/api/cases/${id}/findings/${fid}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     }).then(j),
 };
 
-export const fileUrl = (caseId, rel) => `/api/cases/${caseId}/files/${rel}`;
+export const fileUrl = (caseId, rel) => `${API}/api/cases/${caseId}/files/${rel}`;
 
 export const fmtTs = (s) => {
   if (s == null) return "–";
