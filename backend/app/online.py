@@ -13,6 +13,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 import urllib.parse
 import urllib.request
@@ -155,11 +156,29 @@ def similarity(a: Image.Image, b: Image.Image) -> float:
 EXACT = 0.8
 
 
-def _platform(link: str) -> tuple[str, bool]:
+def _resolve(link: str) -> str:
+    """Google sometimes returns google.com/goto?... redirect links: follow them to the real page."""
+    host = (urllib.parse.urlparse(link or "").hostname or "").lower()
+    if not host.endswith("google.com") or not _public_url(link):
+        return link
+    try:
+        req = urllib.request.Request(link, headers={"User-Agent": UA}, method="GET")
+        with urllib.request.urlopen(req, timeout=6) as r:
+            final = r.geturl()
+        if final and "google.com" not in (urllib.parse.urlparse(final).hostname or ""):
+            return final
+        m = re.search(r"[?&](?:url|q)=(https?[^&]+)", final or "")
+        return urllib.parse.unquote(m.group(1)) if m else link
+    except Exception:
+        return link
+
+
+def _platform(link: str, source: str | None = None) -> tuple[str, bool]:
     host = (urllib.parse.urlparse(link or "").hostname or "").lower()
     plat = next((v for k, v in SOCIAL.items() if k in host or k in (link or "")), None)
-    fc = any(f in (link or "").lower() for f in FACT_CHECKERS)
-    return plat or host.replace("www.", ""), fc
+    fc = any(f in (link or "").lower() for f in FACT_CHECKERS) or any(f in (source or "").lower() for f in ("fact", "alt news", "boom"))
+    label = plat or (source if (source and host.endswith("google.com")) else host.replace("www.", ""))
+    return label or (source or host), fc
 
 
 def search_frames(frames: list[Image.Image]) -> dict:
@@ -179,7 +198,10 @@ def search_frames(frames: list[Image.Image]) -> dict:
 
         def check(c):
             th = _download_image(c["thumb"]) if c.get("thumb") else None
-            return c, (similarity(frame, th) if th is not None else None)
+            sim = similarity(frame, th) if th is not None else None
+            if (sim or 0) >= EXACT or (sim is None and c.get("full")):
+                c = {**c, "link": _resolve(c["link"])}  # resolve redirects in parallel, only for verified matches
+            return c, sim
         with ThreadPoolExecutor(8) as ex:
             for c, sim in ex.map(check, cands[:30]):
                 if sim is None and not c.get("full"):
@@ -187,10 +209,11 @@ def search_frames(frames: list[Image.Image]) -> dict:
                 sim = sim if sim is not None else 0.85
                 if sim < EXACT:
                     continue
-                plat, fc = _platform(c["link"])
-                prev = found.get(c["link"])
+                link = c["link"]
+                plat, fc = _platform(link, c.get("source"))
+                prev = found.get(link)
                 if prev is None or sim > prev["similarity"]:
-                    found[c["link"]] = {"link": c["link"], "title": (c.get("title") or "")[:160], "site": plat,
+                    found[link] = {"link": link, "title": (c.get("title") or "")[:160], "site": plat,
                                         "date": c.get("date"), "thumb": c.get("thumb"), "similarity": round(sim, 3),
                                         "fact_check": fc}
     matches = sorted(found.values(), key=lambda m: (not m["fact_check"], -m["similarity"]))
