@@ -368,6 +368,15 @@ table.t tr.click:hover td { background: var(--field); }
 .settings-grid > .label { padding-top: 10px; }
 .settings-grid > div:not(.label) { padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
 
+/* seen online */
+.hit { display: flex; gap: 14px; padding: 10px; border: 1px solid var(--rule); background: var(--field); margin-top: 8px; text-decoration: none; color: var(--ink); border-radius: 3px; }
+.hit:hover { border-color: var(--ink-2); }
+.hit img, .hit-ph { width: 84px; height: 64px; object-fit: cover; flex: none; background: var(--rule-2); border: 1px solid var(--rule); }
+.hit-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.hit-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.hit-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hit-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* threat matrix & verdict meter */
 .tmatrix { display: grid; }
 .trow { display: grid; grid-template-columns: 112px minmax(0, 1fr) 120px; gap: 14px; padding: 11px 0; border-top: 1px dotted var(--rule); align-items: start; }

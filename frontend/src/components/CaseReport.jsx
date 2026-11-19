@@ -3,6 +3,7 @@ import { api, Kind, KIND, scoreColor } from "../api.jsx";
 import { MODE_INFO, useUI } from "../ui.jsx";
 import { Meter, Scale } from "./Charts.jsx";
 import ThreatMatrix, { VerdictMeter } from "./ThreatMatrix.jsx";
+import SeenOnline from "./SeenOnline.jsx";
 import { FileSection } from "./Evidence.jsx";
 
 const EFFECT = {
@@ -132,7 +133,7 @@ export default function CaseReport({ caseId, onDone }) {
   const [zoom, setZoom] = useState(null);
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
-  const sectionIds = c ? ["summary", ...c.evidence.map((e) => `file-${e.id}`), "connections", "notes", "appendix", "custody"] : [];
+  const sectionIds = c ? ["summary", "online", ...c.evidence.map((e) => `file-${e.id}`), "connections", "notes", "appendix", "custody"] : [];
   const active = useActiveSection(sectionIds, !!c?.results);
 
   const load = () => api.getCase(caseId).then(setC).catch((e) => setErr(e.message));
@@ -199,6 +200,7 @@ export default function CaseReport({ caseId, onDone }) {
           <nav className="toc">
             <div className="label">On this page</div>
             <a className={active === "summary" ? "on" : ""} href="#summary" onClick={(e) => jump(e, "summary")}>Summary</a>
+            <a className={active === "online" ? "on" : ""} href="#online" onClick={(e) => jump(e, "online")}>Seen online</a>
             <a href="#files" onClick={(e) => jump(e, "files")}>The files</a>
             {c.evidence.map((e) => {
               const pe = s.per_evidence?.[e.id];
@@ -293,6 +295,13 @@ export default function CaseReport({ caseId, onDone }) {
               </div>
               <div className="footnote">{s.caveat}</div>
             </section>
+
+            {/* ---------------- seen online ---------------- */}
+            <div id="online" className="section">
+              <div className="section-head"><span className="num">00</span><h2>Seen online</h2>
+                <span className="aside small muted">Exact copies of this media on public social media, news and fact-check sites</span></div>
+              <div className="sheet"><SeenOnline c={c} onDone={load} /></div>
+            </div>
 
             {/* ---------------- files ---------------- */}
             <div id="files" className="section">

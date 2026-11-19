@@ -9,3 +9,4 @@ samples/
 *.tmp
 backend/eval/data/
 backend/third_party/
+backend/.env

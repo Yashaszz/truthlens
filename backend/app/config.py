@@ -3,6 +3,21 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_env_file(path: Path):
+    """Minimal .env reader (KEY=value lines) so API keys can live in backend/.env (git-ignored)."""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        pass
+
+
+_load_env_file(BASE_DIR / ".env")
 DATA_DIR = Path(os.getenv("TRUTHLENS_DATA", BASE_DIR / "data" / "cases"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 

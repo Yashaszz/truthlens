@@ -98,6 +98,24 @@ def _plain_section(case: dict) -> str:
 <p class=meta>{e(s['caveat'])} The technical sections below give every detector result, location and limitation.</p>"""
 
 
+def _online_section(case: dict) -> str:
+    o = case.get("online")
+    if not o:
+        return ""
+    e = html.escape
+    rows = []
+    for eid, r in o.get("items", {}).items():
+        if r.get("matches"):
+            for m in r["matches"]:
+                rows.append(f"<li><b>{e(m['site'])}</b>{' <b style=color:#b42318>[fact-check]</b>' if m.get('fact_check') else ''} "
+                            f"<a href=\"{e(m['link'])}\">{e(m.get('title') or m['link'])}</a> "
+                            f"<i>({round(m['similarity'] * 100)}% match{', ' + e(m['date']) if m.get('date') else ''}; {eid})</i></li>")
+        else:
+            rows.append(f"<li>{eid}: no exact copies found online.</li>")
+    return (f"<h2>Seen online</h2><p class=meta>Exact copies found on public, search-indexed pages (searched {e(o['at'])} via "
+            f"{e(o['provider'])}; each match verified locally).</p><ul>{''.join(rows)}</ul>")
+
+
 def render_html(case: dict, case_dir: Path, custody: list[dict]) -> str:
     r = case["results"] or {}
     fu = r.get("fusion", {}).get("overall", {})
@@ -154,6 +172,7 @@ th{{background:#f2f4f7}} .mono{{font-family:Consolas,monospace;font-size:11px;wo
 <p class=notice><b>Interpretation:</b> Automated scores are investigative indicators, not verdicts. Every finding below lists its location,
 the evidence that supports it, its limitations and alternative explanations, and must be reviewed by a qualified human examiner.</p>
 {_plain_section(case)}
+{_online_section(case)}
 <h2>1. Technical summary</h2>
 <div class=verdict><div class=band>{e(fu.get('band_label', 'n/a'))}</div>
 Fused indicator score <b>{fu.get('score', 0):.2f}</b> (uncertainty band {fu.get('interval', [0, 0])[0]:.2f}–{fu.get('interval', [0, 0])[1]:.2f}),

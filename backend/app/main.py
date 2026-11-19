@@ -59,7 +59,9 @@ def _load(case_id: str) -> dict:
 
 @app.get("/api/health")
 def health():
+    from . import online
     return {"status": "ok", "version": APP_VERSION, "modes": MODES,
+            "web_search": online.provider(), "web_search_missing": online.missing_keys(),
             "samples_ready": (SAMPLES / "tts_speech.wav").exists(), **models.status()}
 
 
@@ -211,6 +213,35 @@ def patch_case(case_id: str, body: CasePatch):
     for ch in changes:
         evs.custody(case_id, "case_updated", ch)
     return {"title": c["title"], "notes": c.get("notes", ""), "notes_updated": c.get("notes_updated")}
+
+
+@app.post("/api/cases/{case_id}/online")
+def search_online(case_id: str):
+    """Look for exact copies of the case's images / video keyframes on the public web."""
+    from . import online
+    if online.provider() is None:
+        raise HTTPException(400, "Web search is not configured: add SERPAPI_KEY + IMGBB_KEY (or GOOGLE_VISION_KEY) to backend/.env "
+                                 "and restart the server.")
+    c = _load(case_id)
+    items = {}
+    sent = 0
+    for ev in c["evidence"]:
+        if ev["modality"] not in ("image", "video"):
+            continue
+        frames = online.frames_for(evs.case_dir(case_id) / ev["stored_as"], ev["modality"])
+        sent += len(frames)
+        items[ev["id"]] = online.search_frames(frames)
+    result = {"at": evs.now(), "provider": online.provider(), "items": items,
+              "total_matches": sum(len(r.get("matches", [])) for r in items.values()),
+              "fact_checks": sum(r.get("fact_checks", 0) for r in items.values())}
+    lock = _case_locks.setdefault(case_id, threading.Lock())
+    with lock:
+        c = _load(case_id)
+        c["online"] = result
+        evs.save_case(c)
+    evs.custody(case_id, "web_search", f"{sent} image(s)/keyframe(s) sent to {result['provider']} for exact-match search; "
+                                       f"{result['total_matches']} verified match(es)", provider=result["provider"])
+    return result
 
 
 @app.delete("/api/cases/{case_id}")

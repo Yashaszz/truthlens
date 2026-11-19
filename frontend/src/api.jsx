@@ -14,6 +14,7 @@ export const api = {
   createCase: (form) => fetch("/api/cases", { method: "POST", body: form }).then(j),
   demo: () => fetch("/api/demo", { method: "POST" }).then(j),
   accuracy: () => fetch("/api/accuracy").then(j),
+  online: (id) => fetch(`/api/cases/${id}/online`, { method: "POST" }).then(j),
   rerun: (id, body) => fetch(`/api/cases/${id}/rerun`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(j),
   patchCase: (id, body) => fetch(`/api/cases/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(j),
   deleteCase: (id) => fetch(`/api/cases/${id}`, { method: "DELETE" }).then(j),
