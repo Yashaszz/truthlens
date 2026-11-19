@@ -48,7 +48,7 @@ export default function Settings({ health, cases }) {
               <tbody>
                 <tr><td className="muted" style={{ width: 170 }}>Version</td><td>{health.version}</td></tr>
                 <tr><td className="muted">Compute</td><td>{health.device}</td></tr>
-                <tr><td className="muted">Model warm-up</td><td>{w?.state === "ready" ? `Ready (${w.done.length}/4 loaded in ${w.seconds} s)` : `${w?.state || "idle"} (${w?.done?.length || 0}/4)`}</td></tr>
+                <tr><td className="muted">Model warm-up</td><td>{w?.state === "ready" ? `Ready (${w.done.length}/5 loaded in ${w.seconds} s)` : `${w?.state || "idle"} (${w?.done?.length || 0}/4)`}</td></tr>
                 {Object.entries(health.models || {}).map(([k, v]) => (
                   <tr key={k}><td className="muted">{k.replace(/_/g, " ")}</td><td className="mono">{v} {health.loaded?.includes(k) ? <span className="tag ok" style={{ marginLeft: 6 }}>loaded</span> : null}</td></tr>
                 ))}

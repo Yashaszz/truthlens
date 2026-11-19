@@ -31,6 +31,7 @@ PLAIN = {
     "ai_ensemble": lambda f: f"This picture was very likely made by an AI image generator ({f['score']:.0%}).",
     "ai_tiles": lambda f: "Part of this photo looks AI-generated while the rest looks real, a sign of AI editing (generative fill or inpainting).",
     "ai_frames": lambda f: f"The video frames carry AI-generator fingerprints ({f['score']:.0%}), so the footage itself looks AI-generated.",
+    "dfdc_video": lambda f: f"The face in this video looks digitally swapped or generated ({f['score']:.0%}), according to the DFDC-winning deepfake detector" + _times(f) + ".",
     "trufor": lambda f: "A forgery detector found an edited region in the picture and marks where it is.",
     "metadata_deep": lambda f: f["description"].split(". ")[0] + ".",
     "face_deepfake_model": lambda f: ("A face looks digitally altered" + _times(f) + ".") if f["modality"] != "image"

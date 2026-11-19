@@ -89,7 +89,7 @@ def derive_scores(kind: str, eid: str, signals: list, summary: dict) -> dict:
     if kind == "audio":
         return audio_scores
     edits = [x for x in (strong("temporal_cuts", 0.45), strong("frozen_frames", 0.45)) if x is not None]
-    return {"face_swap": g("face_deepfake_model"), "lip_sync": g("av_sync"), "ai_generated": g("ai_frames"),
+    return {"face_swap": g("dfdc_video") if g("dfdc_video") is not None else g("face_deepfake_model"), "lip_sync": g("av_sync"), "ai_generated": g("ai_frames"),
             "edited": max(edits) if edits else None, "metadata": g("video_container"), "_audio": audio_scores}
 
 
@@ -167,8 +167,8 @@ def item_matrix(ev: dict, summary: dict, findings: list, signals: list, claim: d
         a = summary.get("audio") or {}
         asc = a.get("scores") or sc.get("_audio") or {}
         faces = summary.get("face_frames") or 0
-        put("face_swap", sc.get("face_swap") if faces else None, _evidence(findings, eid, {"face_deepfake_model", "face_ensemble", "face_sharpness"}),
-            _fids(findings, eid, {"face_deepfake_model", "face_ensemble", "face_sharpness"}), applicable=faces > 0,
+        put("face_swap", sc.get("face_swap") if faces else None, _evidence(findings, eid, {"dfdc_video", "face_deepfake_model", "face_sharpness"}),
+            _fids(findings, eid, {"dfdc_video", "face_deepfake_model", "face_sharpness"}), applicable=faces > 0,
             note=None if faces else "No clear face in the video")
         sync = summary.get("sync") or {}
         put("lip_sync", sc.get("lip_sync"), _evidence(findings, eid, {"av_sync"}), _fids(findings, eid, {"av_sync"}),
@@ -260,6 +260,17 @@ def item_matrix(ev: dict, summary: dict, findings: list, signals: list, claim: d
     return {"kind": kind, "matrix": matrix, "verdict": v, "decisive": decide}
 
 
+def _voice_decisive(pv, transcript):
+    """Voice-clone detectors are trained on English speech; on other languages they drift to ~0.4-0.5 noise.
+    Outside English the voice score only decides the verdict when it is strongly confident."""
+    if pv is None:
+        return None
+    lang = (transcript or {}).get("language")
+    if lang and lang != "en" and pv < 0.8:
+        return None
+    return pv
+
+
 def _decisive(kind: str, rows: dict, summary: dict, findings: list, eid: str) -> dict:
     """Only calibrated, benchmarked detectors may decide the verdict (end-to-end benchmark: letting unmeasured
     heuristics decide produced 17.8% false alarms on real photos; calibrated-only: 1.0%). Heuristic rows stay in
@@ -280,12 +291,12 @@ def _decisive(kind: str, rows: dict, summary: dict, findings: list, eid: str) ->
             d["manipulation"] = strong_md  # e.g. EXIF thumbnail that no longer matches the picture
     elif kind == "video":
         d["face_swap"] = p("face_swap")
-        d["voice_clone"] = p("voice_clone")
+        d["voice_clone"] = _voice_decisive(p("voice_clone"), (summary.get("audio") or {}).get("transcript"))
         d["ai_generated"] = p("ai_generated")
         if (p("lip_sync") or 0) >= 0.5 and max(p("face_swap") or 0, p("voice_clone") or 0) >= 0.5:
             d["lip_sync"] = p("lip_sync")  # lip-sync heuristic decides only when a calibrated channel agrees
     else:
-        d["voice_clone"] = p("voice_clone")
+        d["voice_clone"] = _voice_decisive(p("voice_clone"), summary.get("transcript"))
         if (p("spliced") or 0) >= 0.7:  # two independent splice cues
             d["spliced"] = p("spliced")
         d["fabricated_quote"] = p("fabricated_quote")

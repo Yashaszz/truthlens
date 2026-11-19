@@ -60,7 +60,7 @@ export default function App() {
               {health == null ? "Connecting…" : health.status !== "ok" ? (
                 <><span className="dot" style={{ background: "var(--red)" }} />Engine offline</>
               ) : health.enabled && warm?.state !== "ready" ? (
-                <><span className="spin" style={{ width: 10, height: 10 }} />Preparing models {warm?.done?.length || 0}/4</>
+                <><span className="spin" style={{ width: 10, height: 10 }} />Preparing models {warm?.done?.length || 0}/5</>
               ) : (
                 <><span className="dot" style={{ background: "var(--green)" }} />Engine ready</>
               )}

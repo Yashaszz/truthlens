@@ -166,6 +166,48 @@ def analyze_video(ctx: AnalysisContext, ev: dict, path: Path) -> dict:
                             {"type": "series", "series": "frame_timeline"}, clamp(0.3 + stability), 0.3,
                             "face_deepfake_model", alternatives=["Changing pose/lighting", "Multiple people"])
 
+    # ---------------- DFDC-winning video deepfake detector (decisive face-swap check) ----
+    from . import dfdc
+    if crop_samples and dfdc.available() and ctx.models_on("DFDC video deepfake detector"):
+        faces = [dfdc.crop_face(s["frame"], s["box"]) for s in crop_samples]
+        pr = dfdc.predict_faces(faces)
+        if pr is None:
+            ctx.limit(f"DFDC video deepfake detector unavailable ({dfdc.error()}).")
+        else:
+            vp = dfdc.confident_strategy(pr)
+            for s, p in zip(crop_samples, pr):
+                s["p_dfdc"] = float(p)
+            for t in timeline:
+                m = next((s for s in crop_samples if s["idx"] == t["frame"]), None)
+                if m is not None:
+                    t["p_fake"] = round(m["p_dfdc"], 4)  # timeline shows the video-trained detector
+            summary["dfdc"] = {"p": round(vp, 4), "frames": len(pr), "flagged": int((pr >= 0.8).sum())}
+            hot = sorted([s for s in crop_samples if s["p_dfdc"] >= 0.8], key=lambda s: -s["p_dfdc"])
+            if vp >= 0.5:
+                thumbs = []
+                for s in hot[:6]:
+                    vis = s["frame"].copy()
+                    x, y, bw, bh = s["box"]
+                    cv2.rectangle(vis, (x, y), (x + bw, y + bh), (0, 0, 255), 3)
+                    cv2.putText(vis, f"{fmt_ts(s['t'])}  P(fake)={s['p_dfdc']:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                    pth, url = ctx.artifact_path(eid, f"dfdc_{s['idx']:06d}.jpg")
+                    cv2.imwrite(str(pth), vis, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    s["thumb"] = url
+                    thumbs.append(url)
+                f = ctx.finding("video", eid, "face-manipulation", f"Deepfake face detected in {len(hot)}/{len(pr)} frames",
+                                f"The Kaggle DeepFake Detection Challenge winning model (EfficientNet-B7, trained on 100k+ real and "
+                                f"face-swapped videos) scores the face at {vp:.0%} fake across the clip, with {len(hot)} of {len(pr)} "
+                                "sampled frames above 80%.",
+                                {"type": "frames", "frames": [{"t": round(s["t"], 2), "frame": s["idx"], "score": round(s["p_dfdc"], 3),
+                                                               "bbox": list(s["box"]), "thumb": s.get("thumb")} for s in hot]},
+                                vp, 0.85, "dfdc_video", thumbs,
+                                limitations="Trained on DFDC face swaps; very low resolution, heavy compression or extreme poses reduce accuracy.",
+                                alternatives=["Heavy beauty filter or face-smoothing app", "Very low-quality re-upload"])
+                ctx.signal("dfdc_video", "video", eid, vp, 0.85, f"DFDC video P(fake) = {vp:.2f}", [f["id"]], label="Video deepfake detector (DFDC winner)")
+            else:
+                ctx.signal("dfdc_video", "video", eid, vp, 0.85, f"DFDC video P(fake) = {vp:.2f}: face looks genuine",
+                           label="Video deepfake detector (DFDC winner)")
+
     # ---------------- face sharpness (blending boundary) ------------------------
     if len(sharp_ratio) >= 5:
         med = float(np.median(sharp_ratio))

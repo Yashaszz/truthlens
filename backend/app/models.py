@@ -182,6 +182,7 @@ def preload():
         ("face_deepfake", lambda: face_deepfake_probs([Image.new("RGB", (224, 224), (128, 110, 100))])),
         ("ai_image", lambda: ai_image_prob(Image.new("RGB", (224, 224), (90, 120, 150)))),
         ("audio_spoof", lambda: audio_spoof_probs([np.zeros(16000 * 2, np.float32) + 1e-4])),
+        ("dfdc", _warm_dfdc),
         ("whisper", _warm_whisper),
     ]
     for name, fn in steps:
@@ -194,6 +195,13 @@ def preload():
     _warm["state"] = "ready"
     _warm["seconds"] = round(time.time() - t0, 1)
     log.info("warm-up complete in %.1fs", _warm["seconds"])
+
+
+def _warm_dfdc():
+    import numpy as np
+    from .analyzers import dfdc
+    if dfdc.available():
+        dfdc.predict_faces([np.zeros((200, 160, 3), np.uint8)])
 
 
 def _warm_whisper():
