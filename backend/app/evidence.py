@@ -125,6 +125,16 @@ def verify_integrity(case: dict) -> list[dict]:
     return out
 
 
+def delete_case(case_id: str):
+    import shutil
+    d = case_dir(case_id)
+
+    def _writable(func, path, _exc):
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    shutil.rmtree(d, onerror=_writable)
+
+
 def save_case(case: dict):
     p = DATA_DIR / case["id"] / "case.json"
     tmp = p.with_suffix(".tmp")
@@ -156,6 +166,12 @@ def list_cases() -> list[dict]:
             "evidence_count": len(c["evidence"]),
             "modalities": sorted({e["modality"] for e in c["evidence"]}),
             "assessment": (r.get("fusion") or {}).get("overall", {}).get("band"),
+            "score": (r.get("fusion") or {}).get("overall", {}).get("score"),
+            "findings": len(r.get("findings") or []),
+            "duration_s": r.get("duration_s"),
+            "mode": (c.get("options") or {}).get("mode", "standard"),
+            "examiner": c.get("examiner"),
+            "reviewed": sum(1 for f in (r.get("findings") or []) if (f.get("review") or {}).get("status") not in (None, "pending")),
         })
     out.sort(key=lambda c: c["created_at"], reverse=True)
     return out

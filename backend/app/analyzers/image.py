@@ -283,8 +283,10 @@ def analyze_image(ctx: AnalysisContext, ev: dict, path: Path, *, source_label: s
     faces = fx.detect_faces(gray)
     summary["faces"] = [list(f) for f in faces]
     if not lightweight:
-        p_ai = models.ai_image_prob(rgb)
-        if p_ai is None:
+        p_ai = models.ai_image_prob(rgb) if ctx.models_on("AI-image classifier") else False
+        if p_ai is False:
+            pass
+        elif p_ai is None:
             ctx.limit(f"AI-image classifier unavailable ({models.model_error('ai_image')}); relying on classical detectors.")
         else:
             summary["ai_image_prob"] = round(p_ai, 4)
@@ -306,8 +308,10 @@ def analyze_image(ctx: AnalysisContext, ev: dict, path: Path, *, source_label: s
             for box in faces:
                 x0, y0, x1, y1 = fx.expand_box(box, w, h)
                 crops.append(rgb.crop((x0, y0, x1, y1)))
-            probs = models.face_deepfake_probs(crops)
-            if probs is None:
+            probs = models.face_deepfake_probs(crops) if ctx.models_on("face deepfake classifier") else False
+            if probs is False:
+                pass
+            elif probs is None:
                 ctx.limit(f"Face deepfake model unavailable ({models.model_error('face_deepfake')}).")
             else:
                 summary["face_probs"] = [round(p, 4) for p in probs]

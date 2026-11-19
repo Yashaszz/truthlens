@@ -11,7 +11,6 @@ from PIL import Image
 
 from .. import media, models
 from ..common import AnalysisContext, clamp, fmt_ts
-from ..config import VIDEO_MAX_SAMPLES, VIDEO_MAX_SECONDS, VIDEO_SAMPLE_FPS
 from . import forensics as fx
 from .image import analyze_image
 
@@ -29,10 +28,10 @@ def analyze_video(ctx: AnalysisContext, ev: dict, path: Path) -> dict:
     fps = cap.get(cv2.CAP_PROP_FPS) or (info.get("video") or {}).get("fps") or 25.0
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     duration = info.get("duration") or (total / fps if total else 0)
-    max_frames = int(min(total or 10**9, VIDEO_MAX_SECONDS * fps))
-    if duration and duration > VIDEO_MAX_SECONDS:
-        ctx.limit(f"{eid}: only the first {VIDEO_MAX_SECONDS}s of {duration:.0f}s were analysed.")
-    n_samples = int(min(VIDEO_MAX_SAMPLES, max(8, (max_frames / fps) * VIDEO_SAMPLE_FPS)))
+    max_frames = int(min(total or 10**9, ctx.opts["video_max_seconds"] * fps))
+    if duration and duration > ctx.opts["video_max_seconds"]:
+        ctx.limit(f"{eid}: only the first {ctx.opts['video_max_seconds']}s of {duration:.0f}s were analysed.")
+    n_samples = int(min(ctx.opts["video_max_samples"], max(8, (max_frames / fps) * ctx.opts["video_sample_fps"])))
     sample_idx = set(np.linspace(0, max(0, max_frames - 1), n_samples).astype(int).tolist())
 
     hist_diff, mouth_motion, sharp_ratio = [], [], []
@@ -108,7 +107,7 @@ def analyze_video(ctx: AnalysisContext, ev: dict, path: Path) -> dict:
         sharp_ratio.append(r)
     summary["face_frames"] = len(crops)
     timeline = []
-    probs = models.face_deepfake_probs(crops) if crops else []
+    probs = (models.face_deepfake_probs(crops) if ctx.models_on("face deepfake classifier") else []) if crops else []
     if crops and probs is None:
         ctx.limit(f"Face deepfake model unavailable ({models.model_error('face_deepfake')}).")
         probs = []

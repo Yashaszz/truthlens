@@ -24,9 +24,11 @@ def fmt_ts(sec: float) -> str:
 class AnalysisContext:
     """Collects findings, signals and artifacts produced while analysing one case."""
 
-    def __init__(self, case_dir: Path, case_id: str):
+    def __init__(self, case_dir: Path, case_id: str, options: dict | None = None):
+        from .config import resolve_options
         self.case_dir = case_dir
         self.case_id = case_id
+        self.opts = options or resolve_options(None)
         self.artifact_dir = case_dir / "artifacts"
         self.work_dir = case_dir / "work"
         self.artifact_dir.mkdir(exist_ok=True)
@@ -94,6 +96,13 @@ class AnalysisContext:
         }
         self.findings.append(f)
         return f
+
+    def models_on(self, what: str) -> bool:
+        """False (and a recorded note) when AI detectors were switched off for this check."""
+        if self.opts.get("models", True):
+            return True
+        self.limit(f"AI detectors were turned off for this check, so the {what} was not run.")
+        return False
 
     def limit(self, text: str):
         if text not in self.limitations:

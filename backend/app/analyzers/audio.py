@@ -10,7 +10,7 @@ import numpy as np
 
 from .. import media, models
 from ..common import AnalysisContext, clamp, fmt_ts
-from ..config import AUDIO_HOP_S, AUDIO_MAX_SECONDS, AUDIO_WINDOW_S
+from ..config import AUDIO_WINDOW_S
 
 SR = 16000
 
@@ -32,7 +32,7 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
                   label: str = "audio") -> dict:
     eid = ev["id"]
     wav = ctx.work_dir / f"{eid}_{label}_16k.wav"
-    if not media.to_wav(src, wav, SR, AUDIO_MAX_SECONDS):
+    if not media.to_wav(src, wav, SR, ctx.opts["audio_max_seconds"]):
         ctx.limit(f"{eid}: no decodable audio track.")
         return {"error": "no audio"}
     y, _ = librosa.load(str(wav), sr=SR, mono=True)
@@ -41,8 +41,8 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
     if dur < 1.0:
         ctx.limit(f"{eid}: audio shorter than 1 s; audio analysis skipped.")
         return summary
-    if dur >= AUDIO_MAX_SECONDS - 0.5:
-        ctx.limit(f"{eid}: only the first {AUDIO_MAX_SECONDS}s of audio were analysed.")
+    if dur >= ctx.opts["audio_max_seconds"] - 0.5:
+        ctx.limit(f"{eid}: only the first {ctx.opts['audio_max_seconds']}s of audio were analysed.")
 
     # ---------------- frame features ------------------------------------------
     hop = 160  # 10 ms
@@ -66,7 +66,7 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
                          "mfcc_delta": ds(np.abs(np.diff(mfcc, axis=1, prepend=mfcc[:, :1])).mean(axis=0))}
 
     # ---------------- spoof classifier per window -------------------------------
-    win, hopw = int(AUDIO_WINDOW_S * SR), int(AUDIO_HOP_S * SR)
+    win, hopw = int(AUDIO_WINDOW_S * SR), int(ctx.opts["audio_hop_s"] * SR)
     starts = list(range(0, max(1, len(y) - win + 1), hopw)) or [0]
     chunks, wins = [], []
     for s in starts:
@@ -76,7 +76,7 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
             continue  # skip silence: classifier output on silence is meaningless
         chunks.append(seg.astype(np.float32))
         wins.append((s / SR, min(dur, (s + win) / SR)))
-    probs = models.audio_spoof_probs(chunks) if chunks else []
+    probs = (models.audio_spoof_probs(chunks) if ctx.models_on("voice-spoof classifier") else []) if chunks else []
     window_scores = []
     if chunks and probs is None:
         ctx.limit(f"Audio spoof model unavailable ({models.model_error('audio_spoof')}).")
@@ -225,8 +225,11 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
     summary["artifacts"]["spectrogram"] = url
 
     # ---------------- Whisper transcript ----------------------------------------
-    tr = models.transcribe(wav)
-    if tr is None:
+    tr = models.transcribe(wav) if ctx.opts.get("transcribe", True) else False
+    if tr is False:
+        ctx.limit("Speech transcription was turned off for this check, so quotes and lip-sync timing could not use a transcript.")
+        tr = None
+    elif tr is None:
         ctx.limit(f"Whisper transcription unavailable ({models.model_error('whisper')}); text/sync checks limited.")
     else:
         summary["transcript"] = tr

@@ -206,14 +206,43 @@ function ImageViewer({ c, ev, s, findings }) {
   if (a.noise) layers.push(["noise", "Camera-grain map", fileUrl(c.id, a.noise), "Bright blocks have a noise level that doesn't match the rest of the picture."]);
   if (a.copy_move) layers.push(["copy", "Copied areas", fileUrl(c.id, a.copy_move), "Green box: original area. Red box: its copy. Yellow lines join matching points."]);
   const [layer, setLayer] = useState("original");
+  const [opacity, setOpacity] = useState(100);
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [lensOn, setLensOn] = useState(false);
+  const [lens, setLens] = useState(null);
   const cur = layers.find((l) => l[0] === layer) || layers[0];
   const boxes = findings.filter((f) => f.location?.type === "regions" && f.location.width && f.score >= 0.5);
+  const lensSrc = layer !== "original" && opacity < 50 ? layers[0][2] : cur[2];
+  const ZOOM = 3;
+  const onMove = (e) => {
+    if (!lensOn) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    setLens({ x: e.clientX - r.left, y: e.clientY - r.top, w: r.width, h: r.height });
+  };
   return (
     <div>
-      {layers.length > 1 && <div className="layers">{layers.map(([k, n]) => <button key={k} className={layer === k ? "on" : ""} onClick={() => setLayer(k)}>{n}</button>)}</div>}
-      <div className="viewer">
-        <img src={cur[2]} alt={cur[1]} />
-        {layer === "original" && boxes.flatMap((f) => f.location.regions.slice(0, 3).map((rg, i) => (
+      <div className="viewtools">
+        {layers.length > 1 && <div className="layers">{layers.map(([k, n]) => <button key={k} className={layer === k ? "on" : ""} onClick={() => setLayer(k)}>{n}</button>)}</div>}
+        <label><input type="checkbox" checked={showBoxes} onChange={(e) => setShowBoxes(e.target.checked)} /> boxes</label>
+        <label><input type="checkbox" checked={lensOn} onChange={(e) => { setLensOn(e.target.checked); setLens(null); }} /> magnifier</label>
+      </div>
+      {layer !== "original" && (
+        <div className="viewtools">
+          <span>Photo</span>
+          <input className="range" style={{ maxWidth: 220 }} type="range" min="0" max="100" value={opacity} onChange={(e) => setOpacity(+e.target.value)} aria-label="Map opacity" />
+          <span>Map {opacity}%</span>
+        </div>
+      )}
+      <div className="viewer" onMouseMove={onMove} onMouseLeave={() => setLens(null)} style={{ cursor: lensOn ? "none" : "default" }}>
+        <img src={layers[0][2]} alt="Original" />
+        {layer !== "original" && <img className="over" src={cur[2]} alt={cur[1]} style={{ opacity: opacity / 100 }} />}
+        {lensOn && lens && (
+          <div className="lens" style={{
+            left: lens.x - 85, top: lens.y - 85, backgroundImage: `url(${lensSrc})`,
+            backgroundSize: `${lens.w * ZOOM}px ${lens.h * ZOOM}px`, backgroundPosition: `${-(lens.x * ZOOM - 85)}px ${-(lens.y * ZOOM - 85)}px`,
+          }} />
+        )}
+        {showBoxes && boxes.flatMap((f) => f.location.regions.slice(0, 3).map((rg, i) => (
           <div key={f.id + i} className="box" style={{
             left: `${(rg.bbox[0] / f.location.width) * 100}%`, top: `${(rg.bbox[1] / f.location.height) * 100}%`,
             width: `${(rg.bbox[2] / f.location.width) * 100}%`, height: `${(rg.bbox[3] / f.location.height) * 100}%`,

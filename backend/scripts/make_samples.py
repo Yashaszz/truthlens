@@ -51,6 +51,15 @@ t.paste(blk, (520, 80))
 t.save(OUT / "photo_tampered.jpg", quality=88)
 
 # ---------------------------------------------------------------- audio
+TTS_TEXT = ("Good evening everyone. Today I want to talk about the new water project in our city. We have completed "
+            "the first phase on time and within budget. The second phase will begin next month, and we expect it to "
+            "bring clean water to forty thousand homes. Thank you for your continued support.")
+if not (OUT / "tts_speech.wav").exists():
+    if sys.platform != "win32":
+        sys.exit("samples/tts_speech.wav missing: record or synthesise ~20 s of speech there and re-run.")
+    ps = ("Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+          f"$s.SetOutputToWaveFile('{OUT / 'tts_speech.wav'}'); $s.Speak('{TTS_TEXT}'); $s.Dispose()")
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True, capture_output=True)
 speech, sr = sf.read(OUT / "tts_speech.wav")
 if speech.ndim > 1:
     speech = speech.mean(1)

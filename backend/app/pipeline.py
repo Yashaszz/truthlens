@@ -16,7 +16,7 @@ from .analyzers.sync import analyze_sync
 from .analyzers.text import analyze_text
 from .analyzers.video import analyze_video
 from .common import AnalysisContext
-from .config import APP_VERSION, MODELS, WHISPER_MODEL
+from .config import APP_VERSION, MODELS, WHISPER_MODEL, resolve_options
 from .correlate import correlate
 from .fusion import fuse
 from .report import recommendations, GLOBAL_LIMITATIONS
@@ -50,12 +50,16 @@ def _progress(case: dict, stage: str, pct: int, msg: str):
 def run_analysis(case_id: str):
     case = evs.load_case(case_id)
     cdir = evs.case_dir(case_id)
-    ctx = AnalysisContext(cdir, case_id)
+    opts = resolve_options(case.get("options"))
+    ctx = AnalysisContext(cdir, case_id, opts)
     t0 = time.time()
     try:
         case["status"] = "running"
-        evs.custody(case_id, "analysis_started", f"TruthLens {APP_VERSION} analysis started",
-                    models=MODELS, whisper=WHISPER_MODEL, device=models.device_name())
+        evs.custody(case_id, "analysis_started", f"TruthLens {APP_VERSION} analysis started ({opts['mode']} mode)",
+                    models=MODELS if opts["models"] else "off", whisper=WHISPER_MODEL if opts["transcribe"] else "off",
+                    device=models.device_name(), options=opts)
+        ctx.log("options", f"{opts['mode']} mode; AI detectors {'on' if opts['models'] else 'off'}; "
+                           f"transcription {'on' if opts['transcribe'] else 'off'}; lip-sync {'on' if opts['lipsync'] else 'off'}")
         ctx.log("ingest", f"{len(case['evidence'])} evidence item(s) verified and queued")
         summaries: dict[str, dict] = {}
         transcripts, media_dates, text_ev = [], [], []
@@ -83,10 +87,13 @@ def run_analysis(case_id: str):
                         s["audio"] = a
                         if a.get("transcript"):
                             transcripts.append({"evidence_id": ev["id"], "transcript": a["transcript"]})
-                        _progress(case, "correlate", pct + 8, f"Checking lip-sync in {ev['filename']}")
-                        sync = analyze_sync(ctx, ev, s, a)
-                        if sync:
-                            s["sync"] = sync
+                        if opts["lipsync"]:
+                            _progress(case, "correlate", pct + 8, f"Checking lip-sync in {ev['filename']}")
+                            sync = analyze_sync(ctx, ev, s, a)
+                            if sync:
+                                s["sync"] = sync
+                        else:
+                            ctx.limit(f"{ev['id']}: lip-sync check was turned off for this check.")
                     if s.get("creation_time"):
                         media_dates.append({"evidence_id": ev["id"], "kind": "container creation_time", "when": s["creation_time"]})
                 elif ev["modality"] == "audio":
@@ -145,6 +152,11 @@ def run_analysis(case_id: str):
             "integrity": integrity,
             "history": ctx.history,
         })
+        case["results"]["options"] = opts
+        case.setdefault("runs", []).append({
+            "at": evs.now(), "mode": opts["mode"], "models": opts["models"], "transcribe": opts["transcribe"],
+            "score": fusion["overall"]["score"], "band": fusion["overall"]["band"],
+            "findings": len(ctx.findings), "duration_s": case["results"]["duration_s"]})
         case["status"] = "complete"
         case["progress"] = {"stage": "review", "pct": 100, "message": "Analysis complete: ready for review"}
         evs.save_case(case)

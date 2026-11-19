@@ -28,6 +28,25 @@ AUDIO_MAX_SECONDS = 180
 AUDIO_WINDOW_S = 4.0
 AUDIO_HOP_S = 2.0
 
+# Per-check modes chosen in the UI. "standard" equals the module defaults above.
+MODES = {
+    "quick": {"video_sample_fps": 1.0, "video_max_samples": 24, "video_max_seconds": 60,
+              "audio_max_seconds": 90, "audio_hop_s": 4.0},
+    "standard": {"video_sample_fps": VIDEO_SAMPLE_FPS, "video_max_samples": VIDEO_MAX_SAMPLES,
+                 "video_max_seconds": VIDEO_MAX_SECONDS, "audio_max_seconds": AUDIO_MAX_SECONDS, "audio_hop_s": AUDIO_HOP_S},
+    "thorough": {"video_sample_fps": 4.0, "video_max_samples": 160, "video_max_seconds": 300,
+                 "audio_max_seconds": 300, "audio_hop_s": 1.0},
+}
+
+
+def resolve_options(raw: dict | None) -> dict:
+    raw = raw or {}
+    mode = raw.get("mode") if raw.get("mode") in MODES else "standard"
+    return {"mode": mode, "models": bool(raw.get("models", True)) and ENABLE_MODELS,
+            "transcribe": bool(raw.get("transcribe", True)) and ENABLE_WHISPER,
+            "lipsync": bool(raw.get("lipsync", True)), **MODES[mode]}
+
+
 # Fusion: importance of each detector (multiplied by its per-run reliability).
 DETECTOR_IMPORTANCE = {
     "generator_metadata": 4.0,

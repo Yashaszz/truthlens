@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, Kind, KIND, scoreColor } from "../api.jsx";
+import { MODE_INFO, useUI } from "../ui.jsx";
 import { Meter, Scale } from "./Charts.jsx";
 import { FileSection } from "./Evidence.jsx";
 
@@ -25,12 +26,20 @@ function stagesFor(c) {
 function Working({ c }) {
   const stages = stagesFor(c);
   const msg = c.progress?.message || "";
+  const [t0] = useState(Date.now());
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 500); return () => clearInterval(t); }, []);
   let cur = 0;
   stages.forEach((s, i) => { if (s.keys.some((k) => msg.includes(k))) cur = i; });
   return (
     <div className="sheet work">
-      <h2 style={{ fontSize: 24 }}>Checking {c.evidence.length} file{c.evidence.length > 1 ? "s" : ""}…</h2>
-      <div className="muted">This usually takes under a minute. You can leave this page; the result is saved in Case files.</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <h2 style={{ fontSize: 24 }}>Checking {c.evidence.length} file{c.evidence.length > 1 ? "s" : ""}…</h2>
+        <span className="mono muted" style={{ marginLeft: "auto" }}>{((now - t0) / 1000).toFixed(0)} s</span>
+      </div>
+      <div className="muted">
+        {(c.options?.mode || "standard").replace(/^./, (x) => x.toUpperCase())} check. You can leave this page; the result is saved in Case files.
+      </div>
       <ul className="checklist">
         {stages.map((s, i) => (
           <li key={i} className={i < cur ? "done" : i === cur ? "cur" : ""}>
@@ -43,11 +52,87 @@ function Working({ c }) {
   );
 }
 
+function Recheck({ c, onStarted }) {
+  const ui = useUI();
+  const [open, setOpen] = useState(false);
+  const o = c.options || {};
+  const [mode, setMode] = useState(o.mode || "standard");
+  const [models, setModels] = useState(o.models ?? true);
+  const [transcribe, setTranscribe] = useState(o.transcribe ?? true);
+  const [lipsync, setLipsync] = useState(o.lipsync ?? true);
+  const go = async () => {
+    const reviewed = (c.results?.findings || []).filter((f) => f.review?.status && f.review.status !== "pending").length;
+    if (reviewed && !(await ui.confirm({ title: "Re-check this case?", body: `The ${reviewed} examiner decision(s) on the current flags stay in the custody log, but the flags themselves are replaced by the new results.`, confirmLabel: "Re-check" }))) return;
+    try { await api.rerun(c.id, { mode, models, transcribe, lipsync }); setOpen(false); ui.toast("Re-check started"); onStarted(); }
+    catch (e) { ui.toast(e.message, "err"); }
+  };
+  return (
+    <span style={{ position: "relative" }}>
+      <button className="btn" onClick={() => setOpen(!open)} aria-expanded={open}>Re-check…</button>
+      {open && (
+        <div className="popover">
+          <div className="label" style={{ marginBottom: 8 }}>Run again with</div>
+          <div className="seg">{Object.entries(MODE_INFO).map(([k, m]) => <button key={k} className={mode === k ? "on" : ""} onClick={() => setMode(k)}>{m.name}</button>)}</div>
+          <div className="mode-note">{MODE_INFO[mode].note}</div>
+          {[["AI detectors", models, setModels], ["Transcribe speech", transcribe, setTranscribe], ["Lip-sync", lipsync, setLipsync]].map(([n, v, set]) => (
+            <label className="switch" key={n} style={{ padding: "6px 0" }}><input type="checkbox" checked={v} onChange={(e) => set(e.target.checked)} /><span className="track" /><span>{n}</span></label>
+          ))}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+            <button className="btn sm ghost" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="btn sm ink" onClick={go}>Start</button>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function Notes({ c, onSaved }) {
+  const ui = useUI();
+  const [text, setText] = useState(c.notes || "");
+  const [saving, setSaving] = useState(false);
+  const dirty = text !== (c.notes || "");
+  const save = async () => {
+    setSaving(true);
+    try { await api.patchCase(c.id, { notes: text }); ui.toast("Notes saved to the case file"); onSaved(); }
+    catch (e) { ui.toast(e.message, "err"); } finally { setSaving(false); }
+  };
+  return (
+    <div className="sheet">
+      <textarea className="in" style={{ minHeight: 120, fontFamily: "var(--serif)", fontSize: 16 }} value={text} onChange={(e) => setText(e.target.value)}
+        placeholder="Your own observations, sources contacted, conclusions… Saved with the case and noted in the custody log." />
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 10 }}>
+        <button className="btn ink sm" disabled={!dirty || saving} onClick={save}>{saving ? "Saving…" : "Save notes"}</button>
+        <span className="small muted">{dirty ? "Unsaved changes" : c.notes_updated ? `Last saved ${c.notes_updated.replace("T", " ")}` : "No notes yet"}</span>
+      </div>
+    </div>
+  );
+}
+
+function useActiveSection(ids, enabled) {
+  const [active, setActive] = useState(ids[0]);
+  useEffect(() => {
+    if (!enabled || !("IntersectionObserver" in window)) return;
+    const obs = new IntersectionObserver((entries) => {
+      const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (vis[0]) setActive(vis[0].target.id);
+    }, { rootMargin: "-90px 0px -60% 0px" });
+    ids.forEach((id) => { const el = document.getElementById(id); if (el) obs.observe(el); });
+    return () => obs.disconnect();
+  }, [ids.join(","), enabled]);
+  return active;
+}
+
 export default function CaseReport({ caseId, onDone }) {
+  const ui = useUI();
   const [c, setC] = useState(null);
   const [err, setErr] = useState("");
   const [hl, setHl] = useState(null);
   const [zoom, setZoom] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const sectionIds = c ? ["summary", ...c.evidence.map((e) => `file-${e.id}`), "connections", "notes", "appendix", "custody"] : [];
+  const active = useActiveSection(sectionIds, !!c?.results);
 
   const load = () => api.getCase(caseId).then(setC).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, [caseId]);
@@ -67,22 +152,39 @@ export default function CaseReport({ caseId, onDone }) {
   if (!c) return <div className="empty"><span className="spin" /></div>;
   const r = c.results;
   const s = c.summary;
+  const reviewed = r ? r.findings.filter((f) => f.review?.status && f.review.status !== "pending").length : 0;
+
+  const saveTitle = async () => {
+    setEditing(false);
+    if (!titleDraft.trim() || titleDraft === c.title) return;
+    try { await api.patchCase(c.id, { title: titleDraft }); ui.toast("Case renamed"); load(); onDone?.(); } catch (e) { ui.toast(e.message, "err"); }
+  };
+  const del = async () => {
+    if (!(await ui.confirm({ title: `Delete “${c.title}”?`, body: "This permanently removes the case, its stored evidence copies, results and custody log from this machine.", confirmLabel: "Delete case", danger: true }))) return;
+    try { await api.deleteCase(c.id); ui.toast("Case deleted"); onDone?.(); window.location.hash = "cases"; } catch (e) { ui.toast(e.message, "err"); }
+  };
 
   return (
     <div>
       <div className="crumbs"><a href="#/cases">Case files</a> / <span className="mono">{c.id}</span></div>
       <div className="case-head">
-        <div>
-          <h1>{c.title}</h1>
-          <div className="muted small">Opened {c.created_at.replace("T", " ").slice(0, 16)} · Examiner: {c.examiner} · {c.evidence.length} file{c.evidence.length > 1 ? "s" : ""}{r && ` · checked in ${r.duration_s} s`}</div>
+        <div style={{ minWidth: 0 }}>
+          {editing ? (
+            <input className="in title-edit" autoFocus value={titleDraft} onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={saveTitle} onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") setEditing(false); }} />
+          ) : (
+            <h1>{c.title} <button className="linkbtn small" style={{ fontFamily: "var(--sans)", fontSize: 13, verticalAlign: "middle" }} onClick={() => { setTitleDraft(c.title); setEditing(true); }}>rename</button></h1>
+          )}
+          <div className="muted small">Opened {c.created_at.replace("T", " ").slice(0, 16)} · Examiner: {c.examiner} · {c.evidence.length} file{c.evidence.length > 1 ? "s" : ""}
+            {r && ` · ${MODE_INFO[r.options?.mode || "standard"].name} check in ${r.duration_s} s`}{c.runs?.length > 1 && ` · run ${c.runs.length}`}</div>
         </div>
-        {r && (
-          <div className="actions">
-            <a className="btn ink" href={`/api/cases/${c.id}/report.html?download=true`}>Download report</a>
-            <a className="btn" href={`/api/cases/${c.id}/report.html`} target="_blank" rel="noreferrer">Printable view</a>
-            <a className="btn ghost" href={`/api/cases/${c.id}/report.json`}>Raw data (JSON)</a>
-          </div>
-        )}
+        <div className="actions">
+          {r && <a className="btn ink" href={`/api/cases/${c.id}/report.html?download=true`}>Download report</a>}
+          {r && <a className="btn" href={`/api/cases/${c.id}/report.html`} target="_blank" rel="noreferrer">Printable view</a>}
+          {(r || c.status === "failed") && <Recheck c={c} onStarted={load} />}
+          {r && <a className="btn ghost" href={`/api/cases/${c.id}/report.json`}>JSON</a>}
+          {(r || c.status === "failed") && <button className="btn ghost danger" onClick={del}>Delete</button>}
+        </div>
       </div>
 
       {c.status === "failed" && (
@@ -95,12 +197,24 @@ export default function CaseReport({ caseId, onDone }) {
         <div className="layout">
           <nav className="toc">
             <div className="label">On this page</div>
-            <a href="#summary" onClick={(e) => jump(e, "summary")}>Summary</a>
+            <a className={active === "summary" ? "on" : ""} href="#summary" onClick={(e) => jump(e, "summary")}>Summary</a>
             <a href="#files" onClick={(e) => jump(e, "files")}>The files</a>
-            {c.evidence.map((e) => <a key={e.id} className="sub" href={`#file-${e.id}`} onClick={(ev) => jump(ev, `file-${e.id}`)}>{KIND[e.modality]}: {e.filename}</a>)}
-            <a href="#connections" onClick={(e) => jump(e, "connections")}>How the files connect</a>
-            <a href="#appendix" onClick={(e) => jump(e, "appendix")}>Technical appendix</a>
-            <a href="#custody" onClick={(e) => jump(e, "custody")}>Chain of custody</a>
+            {c.evidence.map((e) => {
+              const pe = s.per_evidence?.[e.id];
+              return (
+                <a key={e.id} className={`sub ${active === `file-${e.id}` ? "on" : ""}`} href={`#file-${e.id}`} onClick={(ev) => jump(ev, `file-${e.id}`)} title={e.filename}>
+                  {pe && <span className="dot" style={{ background: { strong: "var(--red)", indicators: "var(--orange)", inconclusive: "var(--amber)", none: "var(--green)" }[pe.band], marginRight: 6 }} />}
+                  {KIND[e.modality]}: {e.filename}
+                </a>
+              );
+            })}
+            <a className={active === "connections" ? "on" : ""} href="#connections" onClick={(e) => jump(e, "connections")}>How the files connect</a>
+            <a className={active === "notes" ? "on" : ""} href="#notes" onClick={(e) => jump(e, "notes")}>Examiner notes</a>
+            <a className={active === "appendix" ? "on" : ""} href="#appendix" onClick={(e) => jump(e, "appendix")}>Technical appendix</a>
+            <a className={active === "custody" ? "on" : ""} href="#custody" onClick={(e) => jump(e, "custody")}>Chain of custody</a>
+            <div className="label">Review</div>
+            <div className="small muted" style={{ paddingLeft: 12 }}>{reviewed} of {r.findings.length} flags decided</div>
+            <div className="meter" style={{ marginLeft: 12, width: "calc(100% - 12px)", marginTop: 6 }}><div style={{ width: `${r.findings.length ? (reviewed / r.findings.length) * 100 : 0}%`, background: "var(--ink)" }} /></div>
           </nav>
 
           <div style={{ minWidth: 0 }}>
@@ -154,6 +268,11 @@ export default function CaseReport({ caseId, onDone }) {
                   <ul className="small" style={{ color: "var(--ink-2)", marginTop: 0 }}>{s.not_checked.map((x, i) => <li key={i} style={{ marginBottom: 4 }}>{x}</li>)}</ul>
                 </details>
               )}
+              <div className="reviewbar">
+                <span>Examiner review: {reviewed} of {r.findings.length} flags decided</span>
+                <div className="meter"><div style={{ width: `${r.findings.length ? (reviewed / r.findings.length) * 100 : 0}%`, background: "var(--ink)" }} /></div>
+                {reviewed < r.findings.length && r.findings.length > 0 && <button className="linkbtn" onClick={() => goFinding(r.findings.find((f) => !f.review?.status || f.review.status === "pending").id)}>review next flag</button>}
+              </div>
               <div className="footnote">{s.caveat}</div>
             </section>
 
@@ -179,9 +298,15 @@ export default function CaseReport({ caseId, onDone }) {
               </div>
             </div>
 
+            {/* ---------------- notes ---------------- */}
+            <div id="notes" className="section">
+              <div className="section-head"><span className="num">03</span><h2>Examiner notes</h2></div>
+              <Notes c={c} onSaved={load} />
+            </div>
+
             {/* ---------------- appendix ---------------- */}
             <div id="appendix" className="section">
-              <div className="section-head"><span className="num">03</span><h2>Technical appendix</h2></div>
+              <div className="section-head"><span className="num">04</span><h2>Technical appendix</h2></div>
               <div className="sheet">
                 <Appendix c={c} r={r} />
               </div>
@@ -189,7 +314,7 @@ export default function CaseReport({ caseId, onDone }) {
 
             {/* ---------------- custody ---------------- */}
             <div id="custody" className="section">
-              <div className="section-head"><span className="num">04</span><h2>Chain of custody</h2></div>
+              <div className="section-head"><span className="num">05</span><h2>Chain of custody</h2></div>
               <div className="sheet">
                 <table className="t">
                   <thead><tr><th>File</th><th>SHA-256 fingerprint</th><th>Integrity</th></tr></thead>
@@ -284,6 +409,19 @@ function Appendix({ c, r }) {
         <summary>Limitations of this analysis</summary>
         <ul className="small" style={{ marginTop: 0 }}>{r.limitations.map((l, i) => <li key={i} style={{ marginBottom: 4 }}>{l}</li>)}</ul>
       </details>
+
+      {c.runs?.length > 1 && (
+        <details className="more">
+          <summary>Earlier runs of this case <span className="muted small">{c.runs.length}</span></summary>
+          <table className="t">
+            <thead><tr><th>When</th><th>Depth</th><th>AI detectors</th><th>Result</th><th>Score</th><th>Flags</th><th>Time</th></tr></thead>
+            <tbody>{[...c.runs].reverse().map((x, i) => (
+              <tr key={i}><td className="mono small">{x.at.replace("T", " ")}</td><td>{MODE_INFO[x.mode]?.name || x.mode}</td><td>{x.models ? "on" : "off"}</td>
+                <td><span className={`tag b-${x.band}`}>{x.band}</span></td><td className="mono">{x.score.toFixed(2)}</td><td className="mono">{x.findings}</td><td className="mono">{x.duration_s} s</td></tr>
+            ))}</tbody>
+          </table>
+        </details>
+      )}
 
       <details className="more">
         <summary>Analysis log</summary>
