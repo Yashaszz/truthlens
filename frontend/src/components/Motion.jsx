@@ -22,80 +22,60 @@ export function CountUp({ value, duration = 1100, decimals = 0, suffix = "" }) {
   return <>{v.toFixed(decimals)}{suffix}</>;
 }
 
-/** Ring + dot + short trail following the pointer (desktop only, respects reduced motion). */
-export function CursorFollower() {
-  const ring = useRef(null);
-  const dot = useRef(null);
-  const trail = useRef([]);
-  const [on, setOn] = useState(false);
-
+/** Red line-art scene for fake verdicts: a revolver draws itself, spins, fires, the "REAL" board falls, "FAKE" pops up. */
+function FakeShot() {
+  const root = useRef(null);
   useEffect(() => {
-    let fine = false;
-    try { fine = window.matchMedia("(pointer: fine)").matches; } catch { /* ignore */ }
-    if (!fine || reduced()) return;
-    setOn(true);
-    const pos = { x: -100, y: -100 };
-    const pts = [{ x: -100, y: -100 }, ...Array.from({ length: 4 }, () => ({ x: -100, y: -100 }))];
-    let hover = false, down = false, raf;
-    const move = (e) => {
-      pos.x = e.clientX; pos.y = e.clientY;
-      hover = !!e.target.closest?.("a, button, [role=radio], input, select, textarea, summary, .case-item, tr.click, .hit, .drop");
-    };
-    const md = () => { down = true; };
-    const mu = () => { down = false; };
-    const leave = () => { pos.x = -100; pos.y = -100; };
-    const tick = () => {
-      pts[0].x += (pos.x - pts[0].x) * 0.18; pts[0].y += (pos.y - pts[0].y) * 0.18;
-      for (let i = 1; i < pts.length; i++) {
-        pts[i].x += (pts[i - 1].x - pts[i].x) * 0.35; pts[i].y += (pts[i - 1].y - pts[i].y) * 0.35;
-      }
-      const s = hover ? 1.8 : down ? 0.7 : 1;
-      if (ring.current) ring.current.style.transform = `translate3d(${pts[0].x}px, ${pts[0].y}px, 0) translate(-50%, -50%) scale(${s})`;
-      if (ring.current) ring.current.classList.toggle("hover", hover);
-      if (dot.current) dot.current.style.transform = `translate3d(${pos.x}px, ${pos.y}px, 0) translate(-50%, -50%)`;
-      trail.current.forEach((el, i) => {
-        if (el) el.style.transform = `translate3d(${pts[i + 1].x}px, ${pts[i + 1].y}px, 0) translate(-50%, -50%)`;
-      });
-      raf = requestAnimationFrame(tick);
-    };
-    window.addEventListener("pointermove", move, { passive: true });
-    window.addEventListener("pointerdown", md);
-    window.addEventListener("pointerup", mu);
-    document.addEventListener("pointerleave", leave);
-    raf = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerdown", md);
-      window.removeEventListener("pointerup", mu);
-      document.removeEventListener("pointerleave", leave);
-    };
+    // bullet travels exactly from the muzzle to the board, whatever the layout width
+    const el = root.current;
+    const b = el?.querySelector(".bullet"), w = el?.querySelector(".board-wrap");
+    if (b && w) el.style.setProperty("--shot-dist", `${Math.max(40, w.getBoundingClientRect().left + 30 - b.getBoundingClientRect().left)}px`);
   }, []);
-
-  if (!on) return null;
   return (
-    <div aria-hidden="true">
-      {[0, 1, 2, 3].map((i) => <span key={i} className="cur-trail" style={{ opacity: 0.22 - i * 0.045, width: 6 - i, height: 6 - i }}
-        ref={(el) => { trail.current[i] = el; }} />)}
-      <span className="cur-ring" ref={ring} />
-      <span className="cur-dot" ref={dot} />
+    <div className="shot" aria-hidden="true" ref={root}>
+      <svg className="gun" viewBox="0 0 200 124" width="210" height="130">
+        <g className="gun-spin">
+          <path className="ink" d="M58 30 H176 V44 H58 Z M168 30 V24 H174 V30" />
+          <path className="ink" d="M36 28 H60 V60 H36 Z" />
+          <circle className="ink" cx="48" cy="44" r="13" />
+          <circle className="ink thin" cx="48" cy="37" r="2.6" /><circle className="ink thin" cx="54" cy="48" r="2.6" /><circle className="ink thin" cx="42" cy="48" r="2.6" />
+          <path className="ink" d="M40 60 L32 108 Q30 117 41 117 H58 Q66 117 63 106 L60 66" />
+          <path className="ink" d="M60 64 Q78 63 80 77 Q80 88 66 88" />
+          <path className="ink thin" d="M66 67 Q72 73 67 81" />
+          <path className="ink" d="M36 30 L26 19 L33 16 L42 27" />
+          <path className="ink thin" d="M38 82 L52 82 M37 92 L51 92 M36 102 L50 102" />
+        </g>
+        <g className="flash" transform="translate(184 37)">
+          <path d="M0 0 L14 -9 L9 -2 L22 0 L9 2 L14 9 Z" />
+        </g>
+      </svg>
+      <span className="bullet" />
+      <div className="board-wrap">
+        <svg className="board" viewBox="0 0 170 130" width="170" height="130">
+          <path className="string" d="M30 4 L52 40 M140 4 L118 40" />
+          <rect x="18" y="40" width="134" height="70" rx="6" />
+          <text x="85" y="88" textAnchor="middle">REAL</text>
+        </svg>
+        <span className="fake-btn">FAKE</span>
+      </div>
     </div>
   );
 }
 
-/** Plays a one-time red (fake) or green (genuine) outline sweep around its child when `play` becomes true. */
+/** Plays once: green outline sweep for genuine media; red sweep + revolver scene for fakes. */
 export function VerdictReveal({ play, fake, children }) {
   const [active, setActive] = useState(false);
   useEffect(() => {
     if (!play || reduced()) return;
     setActive(true);
-    const t = setTimeout(() => setActive(false), 3600);
+    const t = setTimeout(() => setActive(false), fake ? 5600 : 3600);
     return () => clearTimeout(t);
-  }, [play]);
+  }, [play, fake]);
   return (
     <div className={`reveal ${active ? `reveal-on ${fake ? "reveal-fake" : "reveal-real"}` : ""}`}>
       {children}
-      {active && <span className="reveal-badge">{fake ? "Fake detected" : "Looks genuine"}</span>}
+      {active && fake && <FakeShot />}
+      {active && !fake && <span className="reveal-badge">Looks genuine</span>}
     </div>
   );
 }

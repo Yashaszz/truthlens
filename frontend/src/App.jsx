@@ -6,7 +6,6 @@ import Home from "./components/Home.jsx";
 import CaseFiles from "./components/CaseFiles.jsx";
 import CaseReport from "./components/CaseReport.jsx";
 import Settings from "./components/Settings.jsx";
-import { CursorFollower } from "./components/Motion.jsx";
 
 const route = () => window.location.hash.replace(/^#\/?/, "");
 const THEME_WORD = { system: "Theme: follows your system", light: "Theme: light", dark: "Theme: dark" };
@@ -50,7 +49,6 @@ export default function App() {
 
   return (
     <>
-      <CursorFollower />
       <header className="masthead">
         <div className="masthead-in">
           <a className="wordmark" href="#/">
