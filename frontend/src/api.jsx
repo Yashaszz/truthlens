@@ -39,5 +39,11 @@ export const MODALITY_COLOR = {
   text: "var(--c-text)", "cross-modal": "var(--c-cross)",
 };
 
+export const KIND = { image: "Photo", video: "Video", audio: "Audio", text: "Text", "cross-modal": "Cross-check" };
+
+export function Kind({ m }) {
+  return <span className="kind" style={{ color: MODALITY_COLOR[m] || "var(--muted)" }}><i style={{ background: "currentColor" }} />{KIND[m] || m}</span>;
+}
+
 export const scoreColor = (s) =>
   s >= 0.7 ? "var(--red)" : s >= 0.55 ? "var(--orange)" : s >= 0.4 ? "var(--amber)" : "var(--green)";

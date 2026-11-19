@@ -63,7 +63,8 @@ def run_analysis(case_id: str):
         for n, ev in enumerate(media_items):
             pct = 5 + int(70 * n / max(1, len(media_items)))
             path = cdir / ev["stored_as"]
-            _progress(case, "analyze", pct, f"Analysing {ev['modality']} {ev['id']} ({ev['filename']})")
+            verb = {"image": "Examining photo", "video": "Watching video", "audio": "Listening to audio"}[ev["modality"]]
+            _progress(case, "analyze", pct, f"{verb}: {ev['filename']}")
             t1 = time.time()
             try:
                 if ev["modality"] == "image":
@@ -77,12 +78,12 @@ def run_analysis(case_id: str):
                     if media.to_browser_mp4(path, prev):
                         s["preview"] = f"artifacts/{ev['id']}/preview.mp4"
                     if s.get("has_audio"):
-                        _progress(case, "analyze", pct + 5, f"Analysing audio track + transcript of {ev['id']}")
+                        _progress(case, "analyze", pct + 5, f"Listening to the soundtrack of {ev['filename']}")
                         a = analyze_audio(ctx, ev, path, modality="audio", label="track")
                         s["audio"] = a
                         if a.get("transcript"):
                             transcripts.append({"evidence_id": ev["id"], "transcript": a["transcript"]})
-                        _progress(case, "correlate", pct + 8, f"Audio-visual sync check for {ev['id']}")
+                        _progress(case, "correlate", pct + 8, f"Checking lip-sync in {ev['filename']}")
                         sync = analyze_sync(ctx, ev, s, a)
                         if sync:
                             s["sync"] = sync
@@ -116,15 +117,15 @@ def run_analysis(case_id: str):
                 text_ev.append({"id": ev["id"], "filename": ev["filename"], "content": body})
                 summaries[ev["id"]] = {"chars": len(body), "preview": body[:2000]}
 
-        _progress(case, "analyze", 78, "Text & context analysis")
+        _progress(case, "analyze", 78, "Reading the caption and checking it against the media")
         tsum = analyze_text(ctx, case.get("context", ""), text_ev, transcripts, media_dates, case["created_at"])
         ctx.log("analyze", f"text/context: {len(tsum['quotes'])} quote(s), {len(tsum['dates'])} date check(s)")
 
-        _progress(case, "correlate", 85, "Correlating signals across modalities")
+        _progress(case, "correlate", 85, "Comparing what the files say about each other")
         links = correlate(ctx, case["evidence"], summaries)
         ctx.log("correlate", f"{len(links)} cross-modal link(s) established")
 
-        _progress(case, "report", 93, "Fusing evidence and building report")
+        _progress(case, "report", 93, "Writing the report")
         fusion = fuse(ctx.signals, ctx.findings)
         integrity = evs.verify_integrity(case)
         ctx.findings.sort(key=lambda f: -(f["score"] * (0.5 + f["confidence"])))

@@ -37,8 +37,13 @@ def recommendations(findings: list[dict], links: list[dict], case: dict) -> list
         cat = f["category"]
         if cat in RECS and cat not in seen:
             seen.add(cat)
+            check = RECS[cat]
+            if cat == "face-manipulation" and f["modality"] == "image":
+                check = "Zoom into the face at full resolution: check its outline, hairline, teeth, ears, eye reflections and glasses."
+            if cat == "compositing" and f["modality"] == "video":
+                check = "Pause on the flagged frame and inspect edges, lighting and shadows against the rest of the scene."
             out.append({"priority": "high" if f["score"] * f["confidence"] > 0.3 else "medium",
-                        "check": RECS[cat], "because": f"{f['id']}: {f['title']}"})
+                        "check": check, "because": f"{f['id']}: {f['title']}"})
     out.append({"priority": "standard", "check": "Confirm chain of custody and source of each file with the submitter.",
                 "because": "Required for any evidential use."})
     if not any(e["modality"] in ("video", "audio") for e in case["evidence"]):
@@ -71,6 +76,26 @@ def _img(case_dir: Path, rel: str) -> str:
         return ""
     mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
     return f'<img src="data:{mime};base64,{base64.b64encode(p.read_bytes()).decode()}" alt="{html.escape(rel)}">'
+
+
+def _plain_section(case: dict) -> str:
+    from .plain import summarize
+    s = summarize(case)
+    if not s:
+        return ""
+    e = html.escape
+    found = "".join(f"<li><b>{e(x['file'])}</b>: {e(x['text'])} <i>({x['strength'].lower()} signal)</i></li>" for x in s["found"]) \
+        or "<li>No significant problems were found.</li>"
+    fine = "".join(f"<li>{e(x['text'])} <i>({e(x['file'])})</i></li>" for x in s["looked_fine"])
+    steps = "".join(f"<li>{e(x)}</li>" for x in s["next_steps"])
+    nc = "".join(f"<li>{e(x)}</li>" for x in s["not_checked"])
+    return f"""<h2>Plain-language summary</h2>
+<p class=lead><b>{e(s['headline'])}.</b> {e(s['subline'])} {e(s['confidence_text'])}</p>
+<h3>What we found</h3><ul>{found}</ul>
+{f'<h3>What looked normal</h3><ul>{fine}</ul>' if fine else ''}
+<h3>What to do next</h3><ol>{steps}</ol>
+{f'<h3>What we could not check</h3><ul>{nc}</ul>' if nc else ''}
+<p class=meta>{e(s['caveat'])} The technical sections below give every detector result, location and limitation.</p>"""
 
 
 def render_html(case: dict, case_dir: Path, custody: list[dict]) -> str:
@@ -122,12 +147,14 @@ th{{background:#f2f4f7}} .mono{{font-family:Consolas,monospace;font-size:11px;wo
 .finding h3{{margin:0 0 4px}} .fid{{background:#1d2433;color:#fff;border-radius:4px;padding:1px 6px;font-size:12px}}
 .meta{{color:#475467;font-size:12.5px}} .imgs img{{max-width:48%;margin:4px;border:1px solid #d0d5dd}}
 .notice{{background:#fffaeb;border:1px solid #fec84b;padding:10px 14px;border-radius:6px}}
+.lead{{font-size:16px}} h3{{margin:18px 0 6px;font-size:15px}}
 </style></head><body>
 <h1>TruthLens Forensic Report</h1>
 <div class=meta>Case <b>{case['id']}</b> · {e(case['title'])} · Examiner: {e(case['examiner'])} · Opened {case['created_at']} · Report generated {r.get('generated_at', '')}</div>
 <p class=notice><b>Interpretation:</b> Automated scores are investigative indicators, not verdicts. Every finding below lists its location,
 the evidence that supports it, its limitations and alternative explanations, and must be reviewed by a qualified human examiner.</p>
-<h2>1. Summary</h2>
+{_plain_section(case)}
+<h2>1. Technical summary</h2>
 <div class=verdict><div class=band>{e(fu.get('band_label', 'n/a'))}</div>
 Fused indicator score <b>{fu.get('score', 0):.2f}</b> (uncertainty band {fu.get('interval', [0, 0])[0]:.2f}–{fu.get('interval', [0, 0])[1]:.2f}),
 signal agreement {fu.get('agreement') if fu.get('agreement') is not None else 'n/a'}, {fu.get('n_signals', 0)} detector signals,

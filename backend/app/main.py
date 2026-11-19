@@ -16,6 +16,7 @@ from . import evidence as evs
 from . import models
 from .config import APP_VERSION
 from .pipeline import run_analysis
+from .plain import summarize
 from .report import render_html
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -76,6 +77,7 @@ async def create_case(files: list[UploadFile] = File(...), context: str = Form("
 def get_case(case_id: str):
     c = _load(case_id)
     c["custody"] = evs.read_custody(case_id)
+    c["summary"] = summarize(c)
     return JSONResponse(c)
 
 
@@ -119,6 +121,7 @@ def report_html(case_id: str, download: bool = False):
 def report_json(case_id: str):
     c = _load(case_id)
     c["custody"] = evs.read_custody(case_id)
+    c["summary"] = summarize(c)
     evs.custody(case_id, "report_exported", "JSON forensic report exported")
     return JSONResponse(c, headers={"Content-Disposition": f'attachment; filename="{case_id}_report.json"'})
 

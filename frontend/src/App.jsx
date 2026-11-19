@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useCallback } from "react";
-import { api, BAND } from "./api.js";
-import NewCase from "./components/NewCase.jsx";
-import CaseView from "./components/CaseView.jsx";
+import React, { useCallback, useEffect, useState } from "react";
+import { api } from "./api.jsx";
+import Home from "./components/Home.jsx";
+import CaseFiles from "./components/CaseFiles.jsx";
+import CaseReport from "./components/CaseReport.jsx";
 
 const route = () => window.location.hash.replace(/^#\/?/, "");
 
@@ -12,80 +13,53 @@ export default function App() {
 
   const refresh = useCallback(() => api.cases().then(setCases).catch(() => {}), []);
   useEffect(() => {
-    const on = () => setPath(route());
+    const on = () => { setPath(route()); window.scrollTo(0, 0); };
     window.addEventListener("hashchange", on);
     refresh();
-    const t = setInterval(refresh, 5000);
-    return () => { window.removeEventListener("hashchange", on); clearInterval(t); };
+    return () => window.removeEventListener("hashchange", on);
   }, [refresh]);
 
-  // poll health until the background model warm-up has finished
   useEffect(() => {
     let timer;
     const poll = () => api.health()
-      .then((h) => { setHealth(h); if (h.warmup?.state !== "ready" && h.enabled) timer = setTimeout(poll, 2000); })
+      .then((h) => { setHealth(h); if (h.enabled && h.warmup?.state !== "ready") timer = setTimeout(poll, 2000); })
       .catch(() => { setHealth({ status: "down" }); timer = setTimeout(poll, 4000); });
     poll();
     return () => clearTimeout(timer);
   }, []);
-  const warm = health?.warmup;
 
   const caseId = path.startsWith("case/") ? path.slice(5) : null;
-  const go = (p) => { window.location.hash = p; };
+  const page = caseId ? "case" : path === "cases" ? "cases" : "home";
+  const warm = health?.warmup;
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
-            <circle cx="14" cy="14" r="9" fill="none" stroke="var(--accent)" strokeWidth="3" />
-            <path d="M21 21l7 7" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" />
-            <path d="M9 14h2l1.5-3 3 6 1.5-3h2" fill="none" stroke="var(--accent)" strokeWidth="1.6" />
-          </svg>
-          <div>
-            <h1>TruthLens</h1>
-            <div className="tag">Multimodal media forensics</div>
-          </div>
-        </div>
-        <div style={{ padding: "0 16px 12px" }}>
-          <button className="btn primary" style={{ width: "100%" }} onClick={() => go("")}>+ New investigation</button>
-        </div>
-        <div className="muted small" style={{ padding: "4px 18px" }}>CASES</div>
-        <div className="case-list">
-          {cases.length === 0 && <div className="muted small" style={{ padding: 10 }}>No cases yet.</div>}
-          {cases.map((c) => (
-            <div key={c.id} className={`case-item ${c.id === caseId ? "active" : ""}`} onClick={() => go(`case/${c.id}`)}>
-              <div className="t">{c.title}</div>
-              <div className="small muted mono">{c.id}</div>
-              <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center", flexWrap: "wrap" }}>
-                {c.status !== "complete" ? (
-                  <span className="chip">{c.status === "failed" ? "failed" : <><span className="spin" style={{ width: 10, height: 10 }} /> {c.status}</>}</span>
-                ) : c.assessment ? (
-                  <span className="chip"><span className="sw" style={{ background: BAND[c.assessment]?.color }} />{BAND[c.assessment]?.short}</span>
-                ) : null}
-                <span className="small muted">{c.modalities.join(" · ")}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="health">
-          {health == null ? "Connecting…" : health.status === "ok" ? (
-            <>
-              <div><span className="dot" style={{ background: "var(--green)" }} />Engine v{health.version} online</div>
-              <div>Compute: {health.device}</div>
-              <div>Models: {health.enabled ? "pretrained + classical" : "classical only"}</div>
-              {health.enabled && warm && (warm.state === "ready" ? (
-                <div><span className="dot" style={{ background: "var(--green)" }} />Models warm ({warm.done.length}/4, {warm.seconds}s)</div>
+    <>
+      <header className="masthead">
+        <div className="masthead-in">
+          <a className="wordmark" href="#/">
+            <b>TruthLens</b>
+            <span>Media evidence examination</span>
+          </a>
+          <nav>
+            <span className="engine" title={health?.device || ""}>
+              {health == null ? "Connecting…" : health.status !== "ok" ? (
+                <><span className="dot" style={{ background: "var(--red)" }} />Engine offline</>
+              ) : health.enabled && warm?.state !== "ready" ? (
+                <><span className="spin" style={{ width: 10, height: 10 }} />Preparing models {warm?.done?.length || 0}/4</>
               ) : (
-                <div><span className="spin" style={{ width: 10, height: 10, marginRight: 6 }} />Warming up models ({warm.done.length}/4)…</div>
-              ))}
-            </>
-          ) : <div><span className="dot" style={{ background: "var(--red)" }} />Backend offline: start the API on :8000</div>}
+                <><span className="dot" style={{ background: "var(--green)" }} />Ready</>
+              )}
+            </span>
+            <a className={`navlink ${page === "cases" ? "on" : ""}`} href="#/cases">Case files{cases.length ? ` (${cases.length})` : ""}</a>
+            <a className="btn ink" href="#/">New check</a>
+          </nav>
         </div>
-      </aside>
-      <main className="main">
-        {caseId ? <CaseView key={caseId} caseId={caseId} onChange={refresh} /> : <NewCase onCreated={(id) => { refresh(); go(`case/${id}`); }} />}
+      </header>
+      <main className="wrap">
+        {page === "home" && <Home cases={cases} onCreated={(id) => { refresh(); window.location.hash = `case/${id}`; }} />}
+        {page === "cases" && <CaseFiles cases={cases} />}
+        {page === "case" && <CaseReport key={caseId} caseId={caseId} onDone={refresh} />}
       </main>
-    </div>
+    </>
   );
 }

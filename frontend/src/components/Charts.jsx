@@ -1,5 +1,5 @@
 import React from "react";
-import { fmtTs, scoreColor } from "../api.js";
+import { fmtTs, scoreColor } from "../api.jsx";
 
 /** Horizontal 0–1 scale with the fused score, its uncertainty band and verdict zones. */
 export function RangeGauge({ score, interval, height = 54 }) {
@@ -26,6 +26,24 @@ export function RangeGauge({ score, interval, height = 54 }) {
       <text x={pad} y={10} fontSize="10" fill="var(--muted)">no indication</text>
       <text x={W - pad} y={10} fontSize="10" fill="var(--muted)" textAnchor="end">strong indication</text>
     </svg>
+  );
+}
+
+/** Plain scale: looks normal / unclear / looks manipulated, with the score and its uncertainty band. */
+export function Scale({ score, interval }) {
+  const [lo, hi] = interval || [score, score];
+  const pct = (v) => `${Math.min(100, Math.max(0, v * 100))}%`;
+  return (
+    <div className="scale" aria-label={`Score ${score.toFixed(2)}, range ${lo.toFixed(2)} to ${hi.toFixed(2)}`}>
+      <div className="label" style={{ marginBottom: 14 }}>Where this sits</div>
+      <div className="bar">
+        <div /><div /><div />
+        <span className="band" style={{ left: pct(lo), width: `calc(${pct(hi)} - ${pct(lo)})` }} />
+        <span className="mark" style={{ left: pct(score) }} />
+      </div>
+      <div className="ticks"><span>Looks normal</span><span>Unclear</span><span>Looks manipulated</span></div>
+      <div className="num">score {score.toFixed(2)} · likely range {lo.toFixed(2)}–{hi.toFixed(2)}</div>
+    </div>
   );
 }
 
