@@ -368,6 +368,44 @@ table.t tr.click:hover td { background: var(--field); }
 .settings-grid > .label { padding-top: 10px; }
 .settings-grid > div:not(.label) { padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
 
+/* ---------- motion ---------- */
+@property --sweep { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+.reveal { position: relative; }
+.reveal-on::before {
+  content: ""; position: absolute; inset: -3px; border-radius: 5px; padding: 3px; pointer-events: none; z-index: 2;
+  background: conic-gradient(from var(--sweep), transparent 0deg, var(--rv) 70deg, transparent 140deg, transparent 180deg, var(--rv) 250deg, transparent 320deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: sweep 1.4s linear 2, revealFade 3.6s ease forwards;
+}
+.reveal-on::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 5px; pointer-events: none; z-index: 1;
+  box-shadow: 0 0 0 2px var(--rv), 0 0 28px -4px var(--rv); animation: glow 3.6s ease forwards;
+}
+.reveal-fake { --rv: var(--red); }
+.reveal-real { --rv: var(--green); }
+.reveal-badge {
+  position: absolute; top: -13px; right: 18px; z-index: 3; background: var(--rv); color: var(--paper);
+  font: 700 11px/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; padding: 6px 10px; border-radius: 3px;
+  animation: badge 3.6s ease forwards;
+}
+@keyframes sweep { to { --sweep: 360deg; } }
+@keyframes revealFade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes glow { 0% { opacity: 0; } 10% { opacity: 1; } 25% { opacity: .55; } 40% { opacity: 1; } 75% { opacity: .8; } 100% { opacity: 0; } }
+@keyframes badge { 0% { opacity: 0; transform: translateY(6px); } 10%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.stamp.drop { animation: stampDrop .55s cubic-bezier(.2, 1.4, .4, 1) both; }
+@keyframes stampDrop { 0% { opacity: 0; transform: rotate(-9deg) scale(1.6); } 100% { opacity: 1; transform: rotate(-1.2deg) scale(1); } }
+.trow, .found li, .flag { animation: rise .45s ease both; }
+.trow:nth-child(2), .found li:nth-child(2) { animation-delay: .06s; } .trow:nth-child(3), .found li:nth-child(3) { animation-delay: .12s; }
+.trow:nth-child(4), .found li:nth-child(4) { animation-delay: .18s; } .trow:nth-child(5), .found li:nth-child(5) { animation-delay: .24s; }
+.trow:nth-child(6) { animation-delay: .3s; } .trow:nth-child(n+7) { animation-delay: .36s; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.cur-ring, .cur-dot, .cur-trail { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 9999; border-radius: 50%; will-change: transform; }
+.cur-ring { width: 30px; height: 30px; border: 1.5px solid var(--ink); opacity: .35; transition: width .2s, height .2s, opacity .2s, background .2s; }
+.cur-ring.hover { opacity: .55; background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.cur-dot { width: 5px; height: 5px; background: var(--ink); }
+.cur-trail { background: var(--ink); }
+@media (prefers-reduced-motion: reduce) { .reveal-on::before, .reveal-on::after, .reveal-badge { display: none; } }
+
 /* seen online */
 .hit { display: flex; gap: 14px; padding: 10px; border: 1px solid var(--rule); background: var(--field); margin-top: 8px; text-decoration: none; color: var(--ink); border-radius: 3px; }
 .hit:hover { border-color: var(--ink-2); }

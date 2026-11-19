@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api } from "../api.jsx";
+import { CountUp } from "./Motion.jsx";
 import { StatusTag } from "./CaseFiles.jsx";
 
 const KINDS = [
@@ -119,9 +120,9 @@ export default function Landing({ cases, health, onDemo }) {
       <section className="section">
         <div className="section-head"><h2>On this machine</h2><span className="aside"><a href="#/cases" className="small">All case files →</a></span></div>
         <div className="statline">
-          <div><div className="n">{cases.length}</div><div className="small muted">checks run</div></div>
-          <div><div className="n">{files}</div><div className="small muted">files examined</div></div>
-          <div><div className="n">{flagged}</div><div className="small muted">cases with warning signs</div></div>
+          <div><div className="n"><CountUp value={cases.length} /></div><div className="small muted">checks run</div></div>
+          <div><div className="n"><CountUp value={files} /></div><div className="small muted">files examined</div></div>
+          <div><div className="n"><CountUp value={flagged} /></div><div className="small muted">cases with warning signs</div></div>
           <div><div className="n">{avg != null ? `${avg.toFixed(0)} s` : "–"}</div><div className="small muted">average time per check</div></div>
         </div>
         {cases.length > 0 && (

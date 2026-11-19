@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { CountUp } from "./Motion.jsx";
 
 export const STATUS = {
   detected: ["Detected", "var(--red)"],
@@ -17,7 +18,7 @@ export function VerdictMeter({ verdict }) {
   return (
     <div className="vmeter">
       <div className="label" style={{ marginBottom: 10 }}>Chance this is fake or manipulated</div>
-      <div className="vnum" style={{ color }}>{pct}<span>%</span></div>
+      <div className="vnum" style={{ color }}><CountUp value={pct} /><span>%</span></div>
       <div className="vbar"><div style={{ width: `${pct}%`, background: color }} /></div>
       <div className="vticks"><span>Genuine</span><span>Fake</span></div>
       <div className="small muted" style={{ marginTop: 8 }}>

@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api, Kind, KIND, scoreColor } from "../api.jsx";
 import { MODE_INFO, useUI } from "../ui.jsx";
 import { Meter, Scale } from "./Charts.jsx";
 import ThreatMatrix, { VerdictMeter } from "./ThreatMatrix.jsx";
 import SeenOnline from "./SeenOnline.jsx";
+import { VerdictReveal } from "./Motion.jsx";
 import { FileSection } from "./Evidence.jsx";
 
 const EFFECT = {
@@ -144,6 +145,20 @@ export default function CaseReport({ caseId, onDone }) {
     return () => clearInterval(t);
   }, [c?.status]);
   useEffect(() => { if (c?.status === "complete") onDone?.(); }, [c?.status]);
+  const prevStatus = useRef(null);
+  const [reveal, setReveal] = useState(false);
+  useEffect(() => {
+    if (!c) return;
+    const key = `tl-revealed-${c.id}-${c.runs?.length || 0}`;
+    let seen = false;
+    try { seen = sessionStorage.getItem(key) === "1"; } catch { /* ignore */ }
+    const justFinished = prevStatus.current && prevStatus.current !== "complete" && c.status === "complete";
+    if (c.status === "complete" && (justFinished || !seen)) {
+      setReveal(true);
+      try { sessionStorage.setItem(key, "1"); } catch { /* ignore */ }
+    }
+    prevStatus.current = c.status;
+  }, [c?.status, c?.id]);
 
   const goFinding = (fid) => {
     setHl(fid);
@@ -222,6 +237,7 @@ export default function CaseReport({ caseId, onDone }) {
 
           <div style={{ minWidth: 0 }}>
             {/* ---------------- summary ---------------- */}
+            <VerdictReveal play={reveal} fake={!!s.verdict?.fake}>
             <section id="summary" className="sheet" style={{ scrollMarginTop: 90 }}>
               {c.context && (
                 <div style={{ borderLeft: "3px solid var(--rule)", paddingLeft: 14, marginBottom: 20 }}>
@@ -231,7 +247,7 @@ export default function CaseReport({ caseId, onDone }) {
               )}
               <div className="summary-top">
                 <div>
-                  <div className={`stamp c-${s.band}`}><div className="label">Overall finding</div><div className="h">{s.headline}</div></div>
+                  <div key={reveal ? "r" : "n"} className={`stamp c-${s.band} drop`}><div className="label">Overall finding</div><div className="h">{s.headline}</div></div>
                   <p className="sub">{s.subline}</p>
                   <div className="small">{s.confidence_text}{s.driven_by && <> The result rests mainly on <b>{s.driven_by}</b>.</>}</div>
                 </div>
@@ -295,6 +311,7 @@ export default function CaseReport({ caseId, onDone }) {
               </div>
               <div className="footnote">{s.caveat}</div>
             </section>
+            </VerdictReveal>
 
             {/* ---------------- seen online ---------------- */}
             <div id="online" className="section">
