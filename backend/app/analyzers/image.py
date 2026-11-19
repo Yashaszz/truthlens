@@ -492,10 +492,12 @@ def _image_scores(ctx, eid, s) -> dict:
     md = s.get("metadata_strength", 0)
     edit_md = max(md if md >= 0.45 else 0, sc("exif_software", 0) if (sc("exif_software", 0) or 0) >= 0.55 else 0)
     classical = sc("manip_model")
-    manipulation = max(tru or 0, edit_md, (classical if (classical or 0) >= 0.8 else 0), cm if cm >= 0.6 else 0)
+    cmv = min(cm, 0.65) if cm >= 0.6 else 0  # copy-move is not benchmarked: it can suggest ('likely'), never decide alone
+    # classical model excluded: end-to-end benchmark showed it fires on 15% of real AND 17% of fake images
+    manipulation = max(tru or 0, edit_md, cmv)
     if tru is None and classical is None and not edit_md and cm < 0.6:
         manipulation = min(0.35, (classical or 0.3))
-    compositing = max(tru or 0, cm if cm >= 0.6 else 0) if (tru is not None or cm >= 0.6) else min(0.35, cm)
+    compositing = max(tru or 0, cmv) if (tru is not None or cm >= 0.6) else min(0.35, cm)
     face = sc("face_ensemble", sc("face_deepfake_model"))
     return {"ai_generated": ai, "face_swap": face, "manipulation": round(manipulation, 3), "compositing": round(compositing, 3),
             "hidden_ai": sc("ai_tiles"), "metadata": round(max(md, 0.3 if not s.get("exif") else 0.1), 3)}

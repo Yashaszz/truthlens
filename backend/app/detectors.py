@@ -127,8 +127,36 @@ def load_calib(name: str) -> dict | None:
         return None
 
 
+def quality_features(images: list) -> np.ndarray:
+    """How degraded each image is (sharpness, noise, JPEG blockiness). Lets the calibrated stack adapt to
+    laundered media: compression/noise weaken generator fingerprints, blur makes real photos look synthetic."""
+    import cv2
+    out = []
+    for im in images:
+        g = np.asarray(to_pil(im).convert("L"), dtype=np.float32)
+        s = 512 / max(g.shape)
+        if s < 1:
+            g = cv2.resize(g, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+        sharp = np.log1p(cv2.Laplacian(g, cv2.CV_32F).var())
+        noise = np.log1p((g - cv2.medianBlur(g.astype(np.uint8), 3).astype(np.float32)).std())
+        dx = np.abs(np.diff(g, axis=1)).mean(axis=0)
+        ph = np.array([dx[i::8].mean() for i in range(8)])
+        blk = float(ph.max() / (np.median(ph) + 1e-6))
+        out.append([sharp, noise, blk])
+    return np.array(out, dtype=np.float64)
+
+
+def stack_features(parts: dict, models: list, images: list | None, use_quality: bool) -> np.ndarray:
+    # a member can return NaN on extreme inputs (fp16 overflow): treat as no opinion (0.5)
+    L = np.stack([logit(np.nan_to_num(np.asarray(parts[m], dtype=np.float64), nan=0.5)) for m in models], axis=1)
+    if not use_quality:
+        return L
+    Q = np.nan_to_num(quality_features(images), nan=0.0, posinf=10.0, neginf=0.0)
+    return np.concatenate([L, Q, L[:, :1] * Q[:, :1], L[:, :1] * Q[:, 1:2]], axis=1)  # strongest member × quality
+
+
 class CalibratedEnsemble:
-    """Logistic-regression stack over member logits, fitted by eval/stack_*.py."""
+    """Logistic-regression stack over member logits (+ optional image-quality features), fitted by eval scripts."""
 
     def __init__(self, calib_name: str, fallback_models: list[str]):
         self.calib = load_calib(calib_name)
@@ -146,7 +174,10 @@ class CalibratedEnsemble:
         if not parts:
             return {"p": None, "parts": {}, "calibrated": False}
         if self.calib and all(m in parts for m in self.models):
-            z = sum(c * logit(parts[m]) for m, c in zip(self.models, self.calib["coef"])) + self.calib["intercept"]
+            X = stack_features(parts, self.models, images, bool(self.calib.get("quality")))
+            if "mean" in self.calib:
+                X = (X - np.array(self.calib["mean"])) / np.array(self.calib["scale"])
+            z = X @ np.array(self.calib["coef"]) + self.calib["intercept"]
             p = 1 / (1 + np.exp(-z))
             calibrated = True
         else:  # degrade gracefully: mean of available members

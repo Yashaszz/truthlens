@@ -194,7 +194,8 @@ def summarize(case: dict) -> dict | None:
         detected = [m["name"] for it in th.get("items", {}).values() for m in it["matrix"] if m["status"] == "detected"]
         if v.get("fake"):
             subline = (f"{conf:.0%} likely, based on {where}." if where else f"{conf:.0%} likely.") + \
-                      (f" Threats detected: {', '.join(dict.fromkeys(detected))}." if detected else "")
+                      (f" Threats detected: {', '.join(dict.fromkeys(detected))}." if detected else "") + \
+                      (f" {v['disagreement']}" if v.get("disagreement") else "")
         elif v.get("lean"):
             subline = f"The evidence leans this way ({conf:.0%}). It's a close call, so the specific checks below matter."
         else:

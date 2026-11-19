@@ -77,9 +77,15 @@ def derive_scores(kind: str, eid: str, signals: list, summary: dict) -> dict:
         return v if (v is not None and v >= thr) else (0.2 if v is not None else None)
 
     voice = g("audio_spoof_model")
-    spl = [x for x in (strong("digital_silence", 0.5), strong("noise_floor_jumps", 0.45)) if x is not None]
-    audio_scores = {"voice_clone": voice, "spliced": max(spl) if spl else None,
-                    "metadata": g("audio_bandwidth")}
+    a = (summary.get("audio") if kind == "video" else summary) or {}
+    music = bool((a.get("music") or {}).get("is_music"))
+    ds, nf = strong("digital_silence", 0.5), strong("noise_floor_jumps", 0.45)
+    # noise-floor jumps are an unbenchmarked heuristic: alone they can only suggest editing (cap below 'likely')
+    spliced = None if (ds is None and nf is None) else max(ds or 0, min(nf or 0, 0.45))
+    if ds is not None and ds >= 0.5 and nf is not None and nf >= 0.45:
+        spliced = max(spliced, 0.7)  # two independent splice cues
+    audio_scores = {"voice_clone": None if music else voice, "spliced": None if music else spliced,
+                    "metadata": g("audio_bandwidth"), "music": music}
     if kind == "audio":
         return audio_scores
     edits = [x for x in (strong("temporal_cuts", 0.45), strong("frozen_frames", 0.45)) if x is not None]
@@ -180,10 +186,13 @@ def item_matrix(ev: dict, summary: dict, findings: list, signals: list, claim: d
         fake = max(rows[k]["p"] or 0 for k in ("face_swap", "lip_sync", "ai_generated", "voice_clone", "edited") if rows[k]["status"] != "not_applicable")
         synth_face = max(sc.get("face_swap") or 0, rows["lip_sync"]["p"] or 0, asc.get("voice_clone") or 0) if (faces or summary.get("has_audio")) else None
     else:  # audio
+        music = bool(sc.get("music"))
         put("voice_clone", sc.get("voice_clone"), _evidence(findings, eid, {"audio_spoof_model", "voice_ensemble", "pitch_smoothness", "audio_bandwidth"}),
-            _fids(findings, eid, {"audio_spoof_model", "voice_ensemble"}))
+            _fids(findings, eid, {"audio_spoof_model", "voice_ensemble"}), applicable=not music,
+            note="Music recording: voice-clone detectors are trained on speech" if music else None)
         put("spliced", sc.get("spliced"), _evidence(findings, eid, {"digital_silence", "noise_floor_jumps"}),
-            _fids(findings, eid, {"digital_silence", "noise_floor_jumps"}))
+            _fids(findings, eid, {"digital_silence", "noise_floor_jumps"}), applicable=not music,
+            note="Music recording: splice heuristics assume speech with pauses" if music else None)
         put("fabricated_quote", quote_p, _evidence(findings, eid, {"quote_check"}), _fids(findings, eid, {"quote_check"}),
             applicable=quote_p is not None, note=None if quote_p is not None else "No quote in the claim to check")
         put("metadata", sc.get("metadata"), _evidence(findings, eid, {"audio_bandwidth"}), _fids(findings, eid, {"audio_bandwidth"}))
@@ -236,15 +245,61 @@ def item_matrix(ev: dict, summary: dict, findings: list, signals: list, claim: d
             (["Screenshot-like file without camera data."] if summary.get("format") == "PNG" and not summary.get("exif") else []),
             note=None if claim["evidence"] else "Not presented as evidence in the claim: this is the risk if it were", risk_only=not claim["evidence"])
 
-    order = [k for k, *_ in THREATS[kind]]
     matrix = [{"key": k, "name": n, "desc": d, **rows.get(k, {"p": None, "status": "not_checked", "evidence": [], "finding_ids": [], "note": None})}
               for k, n, d in THREATS[kind]]
-    return {"kind": kind, "matrix": matrix, "verdict": verdict(kind, rows)}
+    decide = _decisive(kind, rows, summary, findings, eid)
+    v = verdict(kind, rows, decide)
+    ens = (summary.get("ai_ensemble") or {}).get("parts") or {}
+    if v.get("key") == "ai_generated" and len(ens) >= 2:
+        hi = [m for m, p in ens.items() if p >= 0.8]
+        lo = [m for m, p in ens.items() if p <= 0.1]
+        if hi and lo:
+            v["tier"] = "low"
+            v["disagreement"] = (f"Detectors disagree: {', '.join(hi)} says AI-generated while {', '.join(lo)} says camera photo. "
+                                 "Heavy retouching, beauty filters or 'AI enhance' processing can cause this, so check the details.")
+    return {"kind": kind, "matrix": matrix, "verdict": v, "decisive": decide}
 
 
-def verdict(kind: str, rows: dict) -> dict:
-    cands = [(k, rows[k]["p"]) for k in PRIMARY[kind] if k in rows and rows[k]["p"] is not None and rows[k]["status"] != "not_applicable"]
+def _decisive(kind: str, rows: dict, summary: dict, findings: list, eid: str) -> dict:
+    """Only calibrated, benchmarked detectors may decide the verdict (end-to-end benchmark: letting unmeasured
+    heuristics decide produced 17.8% false alarms on real photos; calibrated-only: 1.0%). Heuristic rows stay in
+    the matrix as supporting evidence."""
+    def p(k):
+        r = rows.get(k) or {}
+        return r.get("p") if r.get("status") not in ("not_applicable", None) else None
+    d = {}
+    if kind == "image":
+        d["ai_generated"] = p("ai_generated")
+        d["face_swap"] = p("face_swap")
+        if summary.get("trufor") is not None:  # learned forgery detector, opt-in
+            d["compositing"] = summary["trufor"]["score"]
+            d["hidden_ai"] = p("hidden_ai")
+        strong_md = max([f["score"] for f in findings if f["evidence_id"] == eid and f["detector"] == "metadata_deep"
+                         and f["category"] == "metadata" and f["score"] >= 0.7] or [0])
+        if strong_md:
+            d["manipulation"] = strong_md  # e.g. EXIF thumbnail that no longer matches the picture
+    elif kind == "video":
+        d["face_swap"] = p("face_swap")
+        d["voice_clone"] = p("voice_clone")
+        d["ai_generated"] = p("ai_generated")
+        if (p("lip_sync") or 0) >= 0.5 and max(p("face_swap") or 0, p("voice_clone") or 0) >= 0.5:
+            d["lip_sync"] = p("lip_sync")  # lip-sync heuristic decides only when a calibrated channel agrees
+    else:
+        d["voice_clone"] = p("voice_clone")
+        if (p("spliced") or 0) >= 0.7:  # two independent splice cues
+            d["spliced"] = p("spliced")
+        d["fabricated_quote"] = p("fabricated_quote")
+    return {k: v for k, v in d.items() if v is not None}
+
+
+def verdict(kind: str, rows: dict, decide: dict | None = None) -> dict:
+    if decide is not None:
+        cands = [(k, v) for k, v in decide.items() if k in VERDICT_WORD]
+    else:
+        cands = [(k, rows[k]["p"]) for k in PRIMARY[kind] if k in rows and rows[k]["p"] is not None and rows[k]["status"] != "not_applicable"]
     if not cands:
+        if kind == "audio" and rows.get("voice_clone", {}).get("status") == "not_applicable":
+            return {"label": "Music: no speech to check", "key": "music", "confidence": None, "lean": None, "tier": "unknown", "fake": False}
         return {"label": "Not enough to judge", "key": None, "confidence": None, "lean": None, "tier": "unknown"}
     k, p = max(cands, key=lambda x: x[1])
     if p >= 0.6:

@@ -56,6 +56,27 @@ def analyze_audio(ctx: AnalysisContext, ev: dict, src: Path, *, modality: str = 
     voiced_mask = rms_db > speech_thr
     summary["speech_ratio"] = round(float(voiced_mask.mean()), 3)
 
+    # ---------------- music vs speech ----------------------------------------------
+    # Voice-deepfake detectors and splice heuristics are built for speech. Songs have a steady beat and almost no
+    # pauses, which makes both misfire, so detect music first and treat those checks as not applicable.
+    try:
+        onset = librosa.onset.onset_strength(y=y, sr=SR, hop_length=512)
+        ac = librosa.autocorrelate(onset - onset.mean())
+        ac = ac / (ac[0] + 1e-9)
+        lo, hi = int(0.25 * SR / 512), int(1.5 * SR / 512)
+        pulse = float(ac[lo:hi].max()) if hi < len(ac) else 0.0
+        H, P = librosa.decompose.hpss(np.abs(librosa.stft(y[: SR * 60], n_fft=1024, hop_length=512)))
+        harmonic = float((H ** 2).sum() / ((H ** 2).sum() + (P ** 2).sum() + 1e-9))
+        pauses = 1 - summary["speech_ratio"]
+        music = bool((pulse >= 0.3 and pauses < 0.2) or (harmonic >= 0.85 and pauses < 0.1 and pulse >= 0.2))
+        summary["music"] = {"is_music": music, "pulse": round(pulse, 3), "harmonic": round(harmonic, 3), "pause_ratio": round(pauses, 3)}
+        if music:
+            ctx.limit(f"{eid}: this sounds like music (steady beat, no speech pauses). Voice-clone and splice checks are "
+                      "built for speech and were not used for the verdict.")
+    except Exception:
+        summary["music"] = {"is_music": False}
+    is_music = summary["music"]["is_music"]
+
     # downsampled curves for the UI (≈ 4 points/s)
     step = 25
     n = len(rms) // step

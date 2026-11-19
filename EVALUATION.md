@@ -92,7 +92,44 @@ The sample case's Windows-TTS "dubbed" clip moved from undetected to **97 % synt
 them and only treats strong cues (confident clone matches, EXIF-thumbnail mismatch, recorded edit history) as proof
 of manipulation. Learned forgery detection (TruFor) is the planned fix for local edits.
 
-## 5. What is *not* measured yet
+## 5. End-to-end verdict (what a judge sees)
+
+Full image pipeline + threat matrix on 606 held-out images (GenImage, CommunityForensics, DeepFakeFace, field uploads),
+excluding every image used for calibration. Letting unbenchmarked heuristics (ELA-based model, copy-move, tile scan)
+decide the verdict gave **17.8 % false alarms on real photos**; the classical model fired on 15 % of real *and* 17 % of
+fake images. Rule now: **only calibrated detectors decide the verdict**; heuristics stay as supporting evidence.
+
+| Verdict rule | Accuracy | False alarms on real | Fakes caught |
+|---|---|---|---|
+| Heuristics allowed to decide | 87.0 % | 17.8 % | 92.1 % |
+| **Calibrated detectors only (cut-off 0.6)** | **92.4 %** | **1.0 %** | 85.2 % |
+
+Also fixed after field testing: Haar face detector boxing textures as faces (replaced by OpenCV YuNet), copy-move
+matching periodic patterns (window grilles), music triggering speech-only checks.
+
+## 6. Robustness: stripped metadata and laundering
+
+300 held-out images (130 AI, 170 real), AI-image verdict at cut-off 0.6, original calibration → hardened calibration
+(refit on originals + laundered copies with image-quality features, `eval/harden_ai.py`):
+
+| Attack | Accuracy | AI caught | False alarms on real |
+|---|---|---|---|
+| none | 95.7 → 95.3 % | 93 → 92 % | 2 → 2 % |
+| **metadata stripped** | **95.7 → 95.3 %** | **93 → 92 %** | 2 → 2 % |
+| screenshot (crop + PNG) | 96.3 → 95.3 % | 94 → 92 % | 2 → 2 % |
+| downscaled 50 % | 91.7 → 91.7 % | 85 → 85 % | 3 → 4 % |
+| WhatsApp-style (1600 px, JPEG 75) | 88.7 → 90.0 % | 75 → 78 % | 1 → 1 % |
+| blur | 87.7 → **91.0 %** | 98 → 96 % | **20 → 13 %** |
+| heavy JPEG (q 50) | 79.7 → 81.7 % | 53 → 58 % | 0 → 1 % |
+| noise (σ 6) | 85.0 → 85.3 % | 68 → 69 % | 2 → 2 % |
+| all combined | 78.3 → 79.0 % | 52 → 54 % | 2 → 2 % |
+
+**Takeaways:** removing digital signatures (metadata, C2PA, screenshots) has no effect, because detection reads
+generator fingerprints in the pixels. Deliberate laundering (heavy compression + noise) weakens those fingerprints;
+recalibration recovers only a little, since it cannot restore destroyed signal. The real fix is fine-tuning the
+backbone with laundering augmentation (future work).
+
+## 7. What is *not* measured yet
 * Lip-sync / reenactment deepfakes (no public benchmark run yet); the lip-sync check is a signal-processing method.
 * AI-generated **video** uses the image ensemble on sampled frames; not yet benchmarked on generated-video datasets.
 * Context checks (quotes vs transcript, dates vs metadata) are deterministic rules; accuracy depends on Whisper transcription.

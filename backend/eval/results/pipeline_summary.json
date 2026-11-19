@@ -1,0 +1,37 @@
+{
+  "GenImage": {
+    "n": 200,
+    "accuracy": 0.97,
+    "false_alarm_rate": 0.05102040816326531,
+    "catch_rate": 0.9901960784313726,
+    "sec_per_img": 0.4425823974609375
+  },
+  "CommunityForensics": {
+    "n": 200,
+    "accuracy": 0.81,
+    "false_alarm_rate": 0.2809917355371901,
+    "catch_rate": 0.9493670886075949,
+    "sec_per_img": 0.5447523367404937
+  },
+  "DeepFakeFace": {
+    "n": 200,
+    "accuracy": 0.83,
+    "false_alarm_rate": 0.17204301075268819,
+    "catch_rate": 0.8317757009345794,
+    "sec_per_img": 0.4392552173137665
+  },
+  "Field": {
+    "n": 6,
+    "accuracy": 0.8333333333333334,
+    "false_alarm_rate": 0.3333333333333333,
+    "catch_rate": 1.0,
+    "sec_per_img": 0.8858021100362142
+  },
+  "ALL": {
+    "n": 606,
+    "accuracy": 0.8696369636963697,
+    "false_alarm_rate": 0.17777777777777778,
+    "catch_rate": 0.9209621993127147,
+    "sec_per_img": 0.47959208409778353
+  }
+}

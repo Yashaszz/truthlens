@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import threading
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -14,12 +16,35 @@ def to_bgr(pil: Image.Image) -> np.ndarray:
     return cv2.cvtColor(np.asarray(pil.convert("RGB")), cv2.COLOR_RGB2BGR)
 
 
-def detect_faces(gray: np.ndarray, min_frac: float = 0.06) -> list[tuple[int, int, int, int]]:
-    h, w = gray.shape[:2]
+_YUNET_PATH = Path(__file__).resolve().parents[1] / "assets" / "face_detection_yunet_2023mar.onnx"
+_yunet = None
+_yunet_lock = threading.Lock()
+
+
+def detect_faces(img: np.ndarray, min_frac: float = 0.06, min_conf: float = 0.8) -> list[tuple[int, int, int, int]]:
+    """Faces as (x, y, w, h). Uses OpenCV YuNet (neural, few false positives); falls back to Haar if unavailable.
+    The old Haar-only detector boxed textures (lapels, grilles) as faces, and those crops were then scored as faces."""
+    global _yunet
+    h, w = img.shape[:2]
     m = max(24, int(min(h, w) * min_frac))
-    faces = _FACE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=6, minSize=(m, m))
-    faces = sorted([tuple(int(v) for v in f) for f in faces], key=lambda f: -f[2] * f[3])
-    return faces[:5]
+    bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) if img.ndim == 2 else img
+    if _YUNET_PATH.exists() and hasattr(cv2, "FaceDetectorYN"):
+        with _yunet_lock:
+            if _yunet is None:
+                _yunet = cv2.FaceDetectorYN.create(str(_YUNET_PATH), "", (320, 320), min_conf, 0.3, 50)
+            s = 1024 / max(h, w) if max(h, w) > 1024 else 1.0
+            sm = cv2.resize(bgr, None, fx=s, fy=s) if s < 1 else bgr
+            _yunet.setInputSize((sm.shape[1], sm.shape[0]))
+            _, found = _yunet.detect(sm)
+        faces = []
+        for r in (found if found is not None else []):
+            x, y, fw, fh = (int(v / s) for v in r[:4])
+            if r[-1] >= min_conf and min(fw, fh) >= m:
+                faces.append((max(0, x), max(0, y), fw, fh))
+        return sorted(faces, key=lambda f: -f[2] * f[3])[:5]
+    gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = _FACE.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=8, minSize=(m, m))
+    return sorted([tuple(int(v) for v in f) for f in faces], key=lambda f: -f[2] * f[3])[:5]
 
 
 def expand_box(box, w, h, margin=0.25):
@@ -161,9 +186,20 @@ def copy_move(gray: np.ndarray, max_side: int = 1200) -> dict | None:
     binsz = max(8, int(0.015 * max(g.shape)))
     keys = [tuple(k) for k in np.round(off / binsz).astype(int)]
     from collections import Counter
-    key, count = Counter(keys).most_common(1)[0]
+    ranked = Counter(keys).most_common()
+    key, count = ranked[0]
     if count < 16:  # fewer matches are routinely produced by repeated structure (tiles, flat shapes, text)
         return None
+    # Periodic structure (window grilles, blinds, tiles, brickwork, fabric) matches itself at several offsets
+    # that are multiples of the pattern period. Genuine cloning produces one dominant offset.
+    ko = np.array(key, dtype=float)
+    for k2, c2 in ranked[1:6]:
+        k2 = np.array(k2, dtype=float)
+        if c2 >= 0.35 * count:
+            return None  # a second strong offset → lattice / repetition, not a clone
+        for mult in (2.0, 0.5, 3.0):
+            if np.linalg.norm(k2 - ko * mult) <= 1.5 and c2 >= 0.15 * count:
+                return None  # harmonics of the same period
     sel = [pairs[i] for i, k in enumerate(keys) if k == key]
     src = np.array([p for p, _ in sel]) / scale
     dst = np.array([q for _, q in sel]) / scale
@@ -172,6 +208,14 @@ def copy_move(gray: np.ndarray, max_side: int = 1200) -> dict | None:
         x0, y0 = pts.min(axis=0)
         x1, y1 = pts.max(axis=0)
         return [int(x0), int(y0), int(max(8, x1 - x0)), int(max(8, y1 - y0))]
+
+    sb, db = bbox(src), bbox(dst)
+    shift = float(np.linalg.norm(ko * binsz / scale))
+    region = max(sb[2], sb[3], db[2], db[3])
+    overlap_x = min(sb[0] + sb[2], db[0] + db[2]) - max(sb[0], db[0])
+    overlap_y = min(sb[1] + sb[3], db[1] + db[3]) - max(sb[1], db[1])
+    if (overlap_x > 0 and overlap_y > 0) or shift < 1.2 * region:
+        return None  # source and copy touch/overlap: self-similar texture next to itself, not a moved clone
 
     return {"matches": int(count), "offset": [float(v) for v in (off[[i for i, k in enumerate(keys) if k == key]].mean(axis=0) / scale)],
             "source_bbox": bbox(src), "target_bbox": bbox(dst),
