@@ -230,14 +230,26 @@ def search_online(case_id: str):
             continue
         frames = online.frames_for(evs.case_dir(case_id) / ev["stored_as"], ev["modality"])
         sent += len(frames)
-        items[ev["id"]] = online.search_frames(frames)
+        items[ev["id"]] = online.search_frames(frames, ev["modality"])
+    # story-level fact-check search: what the matched copies are about → fact-checkers calling that footage fake
+    for ev_id, r in items.items():
+        q = online.story_query(r.get("matches", [])) if len(r.get("matches", [])) >= 3 else None
+        if q:
+            try:
+                r["story"] = q
+                r["fact_check_news"] = online.fact_check_search(q)
+            except Exception as e:
+                r.setdefault("errors", []).append(f"fact-check search: {e}")
     result = {"at": evs.now(), "provider": online.provider(), "items": items,
               "total_matches": sum(len(r.get("matches", [])) for r in items.values()),
-              "fact_checks": sum(r.get("fact_checks", 0) for r in items.values())}
+              "fact_checks": sum(r.get("fact_checks", 0) + len(r.get("fact_check_news", [])) for r in items.values())}
     lock = _case_locks.setdefault(case_id, threading.Lock())
     with lock:
         c = _load(case_id)
         c["online"] = result
+        if c.get("results") and result["fact_checks"]:
+            from .threats import apply_online
+            c["results"]["threats"] = apply_online(c["results"]["threats"], result)
         evs.save_case(c)
     evs.custody(case_id, "web_search", f"{sent} image(s)/keyframe(s) sent to {result['provider']} for exact-match search; "
                                        f"{result['total_matches']} verified match(es)", provider=result["provider"])

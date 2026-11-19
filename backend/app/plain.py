@@ -193,7 +193,12 @@ def summarize(case: dict) -> dict | None:
         if where and len(where) > 42:
             where = where[:30] + "…" + where[-8:]
         detected = [m["name"] for it in th.get("items", {}).values() for m in it["matrix"] if m["status"] == "detected"]
-        if v.get("fake"):
+        if v.get("key") == "fact_check":
+            subline = (f"This exact footage has already been published as fake by fact-checkers ({len(v.get('fact_checks', []))} link(s) in 'Seen online')."
+                       if v["label"].startswith("Flagged") else
+                       f"This footage matches a story that fact-checkers have debunked as a deepfake ({len(v.get('fact_checks', []))} link(s) in 'Seen online'). "
+                       "Compare it with the original posts listed there.")
+        elif v.get("fake"):
             subline = (f"{conf:.0%} likely, based on {where}." if where else f"{conf:.0%} likely.") + \
                       (f" Threats detected: {', '.join(dict.fromkeys(detected))}." if detected else "") + \
                       (f" {v['disagreement']}" if v.get("disagreement") else "")

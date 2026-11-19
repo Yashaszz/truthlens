@@ -341,3 +341,40 @@ def case_threats(case: dict, summaries: dict, findings: list, signals: list) -> 
         eid, v = min(((eid, it["verdict"]) for eid, it in items.items() if it["verdict"].get("confidence") is not None),
                      key=lambda x: x[1]["confidence"], default=(None, {"label": "Not enough to judge", "tier": "unknown", "confidence": None}))
     return {"claim": claim, "items": items, "verdict": {**v, "evidence_id": eid}}
+
+
+def apply_online(threats: dict, online: dict) -> dict:
+    """A verified copy of the media on a fact-check site is direct evidence: it decides the verdict."""
+    if not threats or not online:
+        return threats
+    best = None
+    for eid, r in (online.get("items") or {}).items():
+        fcs = [m for m in r.get("matches", []) if m.get("fact_check")]
+        story = r.get("fact_check_news") or []
+        it = threats.get("items", {}).get(eid)
+        if (not fcs and not story) or not it:
+            continue
+        if not fcs:  # fact-checks about the same footage (story match): strong, but one step removed from an exact copy
+            sites = ", ".join(dict.fromkeys(m["site"] for m in story))[:120]
+            for row in it["matrix"]:
+                if row["key"] == "misinformation":
+                    row.update({"p": 0.85, "status": "detected", "note": None,
+                                "evidence": [f"Fact-checkers ({sites}) have flagged a fake version of this footage."] + row.get("evidence", [])})
+            v = {"label": "Linked to a debunked deepfake", "key": "fact_check", "confidence": 0.85, "tier": "medium", "lean": None,
+                 "fake": True, "fact_checks": [m["link"] for m in story[:5]], "evidence_id": eid}
+            it["verdict"] = v
+            best = best or v
+            continue
+        sites = ", ".join(dict.fromkeys(m["site"] for m in fcs))[:120]
+        for row in it["matrix"]:
+            if row["key"] == "misinformation":
+                row.update({"p": 0.95, "status": "detected",
+                            "evidence": [f"This exact footage appears in {len(fcs)} fact-check post(s): {sites}."] + row.get("evidence", []),
+                            "note": None})
+        v = {"label": "Flagged fake by fact-checkers", "key": "fact_check", "confidence": 0.95, "tier": "high", "lean": None,
+             "fake": True, "fact_checks": [m["link"] for m in fcs[:5]], "evidence_id": eid}
+        it["verdict"] = v
+        best = best or v
+    if best:
+        threats["verdict"] = best
+    return threats

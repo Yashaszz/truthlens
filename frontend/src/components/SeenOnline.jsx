@@ -46,6 +46,21 @@ export default function SeenOnline({ c, onDone }) {
                   <Kind m={e?.modality} /><b style={{ overflowWrap: "anywhere" }}>{e?.filename}</b>
                   <span className="muted">{r.frames_searched} frame(s) searched · {r.candidates ?? 0} candidates checked</span>
                 </div>
+                {r.fact_check_news?.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div className="label" style={{ color: "var(--red)", margin: "8px 0 2px" }}>Fact-checkers have flagged a fake version of this footage</div>
+                    {r.fact_check_news.map((m) => (
+                      <a key={m.link} className="hit" href={m.link} target="_blank" rel="noreferrer noopener" style={{ borderColor: "var(--red)" }}>
+                        <span className="hit-body">
+                          <span className="hit-top"><b>{m.site}</b><span className="tag strong">Fact-check</span>{m.date && <span className="muted small">{m.date}</span>}</span>
+                          <span className="hit-title">{m.title}</span>
+                          <span className="tiny muted" style={{ whiteSpace: "normal" }}>{m.snippet}</span>
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {r.status === "found" && <div className="label" style={{ margin: "8px 0 2px" }}>Where this footage appears ({r.matches.length})</div>}
                 {r.status === "found" ? r.matches.map((m) => (
                   <a key={m.link} className="hit" href={m.link} target="_blank" rel="noreferrer noopener">
                     {m.thumb ? <img src={m.thumb} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="hit-ph" />}
@@ -54,13 +69,15 @@ export default function SeenOnline({ c, onDone }) {
                         <b>{m.site}</b>
                         {m.fact_check && <span className="tag strong">Fact-check</span>}
                         {m.date && <span className="muted small">{m.date}</span>}
-                        <span className="muted small" style={{ marginLeft: "auto" }}>{Math.round(m.similarity * 100)}% match</span>
+                        <span className="muted small" style={{ marginLeft: "auto" }}>{m.match === "contains this footage" ? "contains this footage" : `${Math.round(m.similarity * 100)}% match`}</span>
                       </span>
                       <span className="hit-title">{m.title || m.link}</span>
                       <span className="tiny muted hit-url">{m.link}</span>
                     </span>
                   </a>
-                )) : r.status === "none" ? (
+                )) : r.status === "partial" ? (
+                  <div className="notice">No copies found, but {r.errors?.length} of {r.frames_searched} searches failed (network). Try "Search again".</div>
+                ) : r.status === "none" ? (
                   <div className="muted">No exact copies found online.</div>
                 ) : r.status === "not_configured" ? (
                   <div className="muted">Web search not configured.</div>

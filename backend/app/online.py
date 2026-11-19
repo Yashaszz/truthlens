@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import socket
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -63,7 +64,20 @@ def _public_url(url: str) -> bool:
         return False
 
 
-def _get_json(url: str, data: bytes | None = None, timeout: int = 40) -> dict:
+def _get_json(url: str, data: bytes | None = None, timeout: int = 40, tries: int = 3) -> dict:
+    import time
+    for i in range(tries):
+        try:
+            return _get_json_once(url, data, timeout)
+        except urllib.error.HTTPError:
+            raise
+        except Exception:
+            if i == tries - 1:
+                raise
+            time.sleep(1.5 * (i + 1))
+
+
+def _get_json_once(url: str, data: bytes | None = None, timeout: int = 40) -> dict:
     req = urllib.request.Request(url, data=data, headers={"User-Agent": UA, "Content-Type": "application/json" if data and data[:1] == b"{" else
                                                          "application/x-www-form-urlencoded"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -95,17 +109,17 @@ def _jpeg_b64(im: Image.Image, max_side: int = 1280) -> str:
 
 
 # ------------------------------------------------------------------ providers
-def _serpapi(frame: Image.Image) -> list[dict]:
+def _serpapi(frame: Image.Image, kind: str = "exact_matches") -> list[dict]:
     up = _get_json(f"https://api.imgbb.com/1/upload?expiration=600&key={urllib.parse.quote(os.environ['IMGBB_KEY'])}",
                    urllib.parse.urlencode({"image": _jpeg_b64(frame)}).encode())
     url = up["data"]["url"]
-    q = urllib.parse.urlencode({"engine": "google_lens", "type": "exact_matches", "url": url, "hl": "en",
+    q = urllib.parse.urlencode({"engine": "google_lens", "type": kind, "url": url, "hl": "en",
                                 "api_key": os.environ["SERPAPI_KEY"]})
     res = _get_json(f"https://serpapi.com/search.json?{q}", timeout=60)
     if res.get("error"):
         raise RuntimeError(res["error"])
     out = []
-    for m in res.get("exact_matches", []) or []:
+    for m in (res.get("exact_matches") or []) + (res.get("visual_matches") or []):
         out.append({"link": m.get("link"), "title": m.get("title"), "source": m.get("source"), "date": m.get("date"),
                     "thumb": m.get("thumbnail") or m.get("image")})
     return out
@@ -154,6 +168,47 @@ def similarity(a: Image.Image, b: Image.Image) -> float:
 
 
 EXACT = 0.8
+CONTAIN_INLIERS = 18
+
+
+def contains(frame: Image.Image, thumb: Image.Image) -> int:
+    """RANSAC-verified ORB inliers between our frame and a (possibly composite) thumbnail: counts geometric agreement,
+    so a fact-check image showing our footage side-by-side with the original still matches."""
+    try:
+        ga = cv2.cvtColor(np.asarray(frame), cv2.COLOR_RGB2GRAY)
+        gb = cv2.cvtColor(np.asarray(thumb), cv2.COLOR_RGB2GRAY)
+        ga = cv2.resize(ga, (480, int(480 * ga.shape[0] / ga.shape[1])))
+        sb = 720 / gb.shape[1]
+        gb = cv2.resize(gb, (720, int(gb.shape[0] * sb)), interpolation=cv2.INTER_CUBIC)
+        orb = cv2.ORB_create(3000)
+        ka, da = orb.detectAndCompute(ga, None)
+        kb, db = orb.detectAndCompute(gb, None)
+        if da is None or db is None or len(ka) < 15 or len(kb) < 15:
+            return 0
+        ms = [m for m, n in cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(da, db, k=2) if m.distance < 0.75 * n.distance]
+        if len(ms) < 10:
+            return 0
+        src = np.float32([ka[m.queryIdx].pt for m in ms]); dst = np.float32([kb[m.trainIdx].pt for m in ms])
+        H, mask = cv2.findHomography(src, dst, cv2.RANSAC, 5.0)
+        if H is None or mask is None:
+            return 0
+        det = np.linalg.det(H[:2, :2])
+        return int(mask.sum()) if 0.05 < abs(det) < 20 else 0  # reject degenerate warps
+    except Exception:
+        return 0
+
+
+def crop_content(im: Image.Image) -> Image.Image:
+    """Remove black bars (pillar/letterbox in screen recordings) so only the actual footage is searched."""
+    g = np.asarray(im.convert("L"), dtype=np.float32)
+    cols = np.where(g.mean(axis=0) > 18)[0]
+    rows = np.where(g.mean(axis=1) > 18)[0]
+    if len(cols) < 20 or len(rows) < 20:
+        return im
+    box = (int(cols[0]), int(rows[0]), int(cols[-1]) + 1, int(rows[-1]) + 1)
+    if (box[2] - box[0]) * (box[3] - box[1]) < 0.92 * im.width * im.height:
+        return im.crop(box)
+    return im
 
 
 def _resolve(link: str) -> str:
@@ -181,11 +236,13 @@ def _platform(link: str, source: str | None = None) -> tuple[str, bool]:
     return label or (source or host), fc
 
 
-def search_frames(frames: list[Image.Image]) -> dict:
+def search_frames(frames: list[Image.Image], modality: str = "image") -> dict:
     prov = provider()
     if prov is None:
         return {"status": "not_configured", "missing": missing_keys()}
-    fn = _serpapi if prov == "serpapi" else _vision
+    kind = "visual_matches" if modality == "video" else "exact_matches"
+    fn = (lambda f: _serpapi(f, kind)) if prov == "serpapi" else _vision
+    frames = [crop_content(f) for f in frames]
     found: dict[str, dict] = {}
     errors, candidates = [], 0
     for frame in frames:
@@ -199,6 +256,11 @@ def search_frames(frames: list[Image.Image]) -> dict:
         def check(c):
             th = _download_image(c["thumb"]) if c.get("thumb") else None
             sim = similarity(frame, th) if th is not None else None
+            if th is not None and (sim or 0) < EXACT:
+                inl = contains(frame, th)
+                if inl >= CONTAIN_INLIERS:
+                    sim = max(sim or 0, EXACT + min(0.15, inl / 400))
+                    c = {**c, "contains": True}
             if (sim or 0) >= EXACT or (sim is None and c.get("full")):
                 c = {**c, "link": _resolve(c["link"])}  # resolve redirects in parallel, only for verified matches
             return c, sim
@@ -215,9 +277,9 @@ def search_frames(frames: list[Image.Image]) -> dict:
                 if prev is None or sim > prev["similarity"]:
                     found[link] = {"link": link, "title": (c.get("title") or "")[:160], "site": plat,
                                         "date": c.get("date"), "thumb": c.get("thumb"), "similarity": round(sim, 3),
-                                        "fact_check": fc}
+                                        "fact_check": fc, "match": "contains this footage" if c.get("contains") else "exact copy"}
     matches = sorted(found.values(), key=lambda m: (not m["fact_check"], -m["similarity"]))
-    status = "error" if errors and not matches and not candidates else ("found" if matches else "none")
+    status = "found" if matches else ("error" if errors and not candidates else ("partial" if errors else "none"))
     return {"status": status, "provider": prov, "frames_searched": len(frames), "candidates": candidates,
             "matches": matches, "fact_checks": sum(m["fact_check"] for m in matches), "errors": errors[:3]}
 
@@ -238,3 +300,43 @@ def frames_for(evidence_path: Path, modality: str, n: int = 3) -> list[Image.Ima
     cap.release()
     out.sort(key=lambda t: not t[0])  # prefer frames with a visible face (most likely to be reposted thumbnails)
     return [im for _, im in out[:n]]
+
+
+STOP = set("the a an and or of to in on for with by from at is are was were be this that these those it its as his her their our your "
+           "pm modi's new video watch here now live news today latest official full update says said will has have had".split())
+FAKE_WORDS = ("fake", "deepfake", "deep fake", "altered", "morphed", "doctored", "manipulated", "misleading", "false", "fabricated",
+              "edited", "ai-generated", "ai generated", "digitally")
+
+
+def story_query(matches: list[dict], n: int = 6) -> str | None:
+    """Most frequent meaningful words across the matched posts' titles = what the footage is about."""
+    import collections
+    import unicodedata
+    cnt = collections.Counter()
+    for m in matches:
+        t = unicodedata.normalize("NFKC", m.get("title") or "").lower()
+        words = {w for w in re.findall(r"[a-z][a-z'-]{2,}", t) if w not in STOP}
+        cnt.update(words)
+    top = [w for w, c in cnt.most_common(n * 2) if c >= 2][:n]
+    return " ".join(top) if len(top) >= 2 else None
+
+
+def fact_check_search(query: str) -> list[dict]:
+    """One web search for fact-checks about the same story; keep fact-check sites / posts that call it fake."""
+    if not os.getenv("SERPAPI_KEY"):
+        return []
+    q = urllib.parse.urlencode({"engine": "google", "q": f"{query} fake OR deepfake fact check", "hl": "en", "num": 20,
+                                "api_key": os.environ["SERPAPI_KEY"]})
+    res = _get_json(f"https://serpapi.com/search.json?{q}", timeout=60)
+    out = []
+    for r in res.get("organic_results", []) or []:
+        link, title, snip = r.get("link", ""), r.get("title", ""), r.get("snippet", "")
+        text = f"{title} {snip}".lower()
+        is_fc_site = any(f in link.lower() for f in FACT_CHECKERS) or any(k in (r.get("source") or "").lower() for k in ("fact", "boom", "alt news"))
+        says_fake = any(w in text for w in FAKE_WORDS)
+        on_story = sum(w in text for w in set(query.split())) >= 2  # about THIS footage, not a generic deepfake roundup
+        if is_fc_site and says_fake and on_story:
+            plat, _ = _platform(link, r.get("source"))
+            out.append({"link": link, "title": title[:160], "snippet": snip[:240], "site": r.get("source") or plat,
+                        "date": r.get("date"), "says_fake": True})
+    return out
