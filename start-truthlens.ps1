@@ -11,7 +11,18 @@ $Cf = Join-Path $env:LOCALAPPDATA "cloudflared.exe"
 $Log = Join-Path $env:TEMP "truthlens-tunnel.log"
 $Repo = "https://github.com/Yashaszz/truthlens.git"
 
-function Say($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
+$LogDir = Join-Path $env:LOCALAPPDATA "truthlens"
+New-Item -ItemType Directory -Force $LogDir | Out-Null
+$RunLog = Join-Path $LogDir "launcher.log"
+function Say($m) {
+  $line = "[{0}] {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $m
+  Write-Host $line
+  try { Add-Content -Path $RunLog -Value $line -Encoding UTF8 } catch {}
+}
+
+# Only one launcher at a time (auto-start at logon + a manual run must not fight each other).
+$mutex = New-Object System.Threading.Mutex($false, "Local\TruthLensLauncher")
+if (-not $mutex.WaitOne(0)) { Say "Another TruthLens launcher is already running - exiting."; exit 0 }
 
 # Keep the computer awake while this script runs (no system settings are changed).
 Add-Type -Namespace TL -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
@@ -29,7 +40,7 @@ function Test-Server {
 function Start-Server {
   Say "Starting TruthLens server..."
   Start-Process -FilePath $Py -ArgumentList "-m","uvicorn","app.main:app","--port","8000","--app-dir",(Join-Path $Root "backend") `
-    -WorkingDirectory $Root -WindowStyle Minimized | Out-Null
+    -WorkingDirectory $Root -WindowStyle Hidden | Out-Null
   for ($i = 0; $i -lt 90; $i++) { if (Test-Server) { Say "Server is up."; return }; Start-Sleep 2 }
   Say "Server did not answer yet (models may still be loading)."
 }
@@ -56,7 +67,7 @@ function Update-Link($url) {
 function Start-Tunnel {
   if (Test-Path $Log) { Remove-Item $Log -Force }
   Say "Starting Cloudflare tunnel..."
-  $p = Start-Process -FilePath $Cf -ArgumentList "tunnel","--url","http://localhost:8000","--logfile",$Log -WindowStyle Minimized -PassThru
+  $p = Start-Process -FilePath $Cf -ArgumentList "tunnel","--url","http://localhost:8000","--logfile",$Log -WindowStyle Hidden -PassThru
   for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep 1
     if (Test-Path $Log) {
@@ -68,9 +79,12 @@ function Start-Tunnel {
   return @{ Proc = $p; Url = $null }
 }
 
+# Clear out tunnels left over from an earlier run so only one public address exists.
+Get-Process cloudflared -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Cf } | ForEach-Object { try { $_.Kill() } catch {} }
 if (-not (Test-Server)) { Start-Server } else { Say "Server already running." }
 $t = Start-Tunnel
 $linked = $false
+$misses = 0
 if ($t.Url) { Say "Tunnel: $($t.Url)"; $linked = Update-Link $t.Url }
 
 Say "TruthLens is live at https://yashaszz.github.io/truthlens/  (keep this window open; Ctrl+C to stop)"
@@ -84,6 +98,12 @@ while ($true) {
   }
   if ($t.Url -and -not $linked) { $linked = Update-Link $t.Url }
   # health check through the public tunnel; restart it if Cloudflare dropped it
-  try { Invoke-WebRequest ($t.Url + "/api/health") -UseBasicParsing -TimeoutSec 15 | Out-Null }
-  catch { Say "Public tunnel not reachable - restarting it."; try { $t.Proc.Kill() } catch {}; $t.Url = $null }
+  # (3 misses in a row, so a brief Wi-Fi blip doesn't churn the address)
+  if ($t.Url) {
+    try { Invoke-WebRequest ($t.Url + "/api/health") -UseBasicParsing -TimeoutSec 15 | Out-Null; $misses = 0 }
+    catch {
+      $misses++
+      if ($misses -ge 3) { Say "Public tunnel not reachable - restarting it."; try { $t.Proc.Kill() } catch {}; $t.Url = $null; $misses = 0 }
+    }
+  }
 }
