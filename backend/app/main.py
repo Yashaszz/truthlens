@@ -20,7 +20,7 @@ from . import models
 from .config import APP_VERSION, MODES, resolve_options
 from .pipeline import run_analysis
 from .plain import summarize
-from .report import render_html
+from .report import complaint, evidence_pack, render_html
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -307,6 +307,26 @@ def report_html(case_id: str, download: bool = False):
     html = render_html(c, evs.case_dir(case_id), evs.read_custody(case_id))
     headers = {"Content-Disposition": f'attachment; filename="{case_id}_report.html"'} if download else {}
     return HTMLResponse(html, headers=headers)
+
+
+@app.get("/api/cases/{case_id}/complaint")
+def case_complaint(case_id: str):
+    c = _load(case_id)
+    if not c.get("results"):
+        raise HTTPException(409, "analysis not complete")
+    return complaint(c)
+
+
+@app.get("/api/cases/{case_id}/evidence-pack.zip")
+def case_evidence_pack(case_id: str):
+    from fastapi.responses import Response
+    c = _load(case_id)
+    if not c.get("results"):
+        raise HTTPException(409, "analysis not complete")
+    evs.custody(case_id, "report_exported", "Evidence pack (report, originals, hashes, complaint text) exported")
+    data = evidence_pack(c, evs.case_dir(case_id), evs.read_custody(case_id))
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{case_id}_evidence_pack.zip"'})
 
 
 @app.get("/api/cases/{case_id}/report.json")

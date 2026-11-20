@@ -489,3 +489,21 @@ table.t tr.click:hover td { background: var(--field); }
 /* layout: no squeezed action columns */
 table.t td:last-child, table.t th:last-child { white-space: nowrap; }
 table.t td .linkbtn { white-space: nowrap; }
+
+/* ---------- report to cybercrime ---------- */
+.btn.cyber-go { background: var(--red); border-color: var(--red); color: #fff; display: inline-flex; align-items: center; gap: 7px; }
+.btn.cyber-go:hover { filter: brightness(1.08); }
+.btn svg { vertical-align: -3px; }
+.cyber-ic { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--red);
+  border: 1.5px solid var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
+.cyber-banner { display: flex; align-items: center; gap: 14px; margin-top: 22px; padding: 14px 16px; border: 1.5px solid var(--red);
+  background: color-mix(in srgb, var(--red) 7%, var(--sheet)); }
+.cyber-banner .btn { margin-left: auto; flex: none; }
+.dialog.cyber { max-width: 680px; max-height: calc(100vh - 40px); overflow: auto; }
+.cyber-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.cyber-head h3 { margin: 0; }
+.cyber-steps { margin: 6px 0 0 18px; padding: 0; } .cyber-steps li { margin: 6px 0; }
+.cyber-note { padding: 10px 12px; border: 1px solid var(--rule); background: var(--paper, transparent); margin-bottom: 8px; font-size: 14px; }
+.cyber-text { width: 100%; font-size: 12.5px; line-height: 1.5; resize: vertical; margin-top: 6px; }
+.cyber-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+@media (max-width: 640px) { .cyber-banner { flex-wrap: wrap; } .cyber-banner .btn { margin-left: 0; } }

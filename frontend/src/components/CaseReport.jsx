@@ -6,6 +6,7 @@ import ThreatMatrix, { VerdictMeter } from "./ThreatMatrix.jsx";
 import SeenOnline from "./SeenOnline.jsx";
 import { VerdictReveal } from "./Motion.jsx";
 import { FileSection } from "./Evidence.jsx";
+import { CyberBanner, CyberButton } from "./CyberReport.jsx";
 
 const EFFECT = {
   strengthens: ["Adds weight", "var(--red)"],
@@ -198,6 +199,7 @@ export default function CaseReport({ caseId, onDone }) {
         <div className="actions">
           {r && <a className="btn ink" href={`${API}/api/cases/${c.id}/report.html?download=true`}>Download report</a>}
           {r && <a className="btn" href={`${API}/api/cases/${c.id}/report.html`} target="_blank" rel="noreferrer">Printable view</a>}
+          {r && <CyberButton caseId={c.id} fake={!!s?.verdict?.fake} />}
           {(r || c.status === "failed") && <Recheck c={c} onStarted={load} />}
           {r && <a className="btn ghost" href={`${API}/api/cases/${c.id}/report.json`}>JSON</a>}
           {(r || c.status === "failed") && <button className="btn ghost danger" onClick={del}>Delete</button>}
@@ -253,6 +255,7 @@ export default function CaseReport({ caseId, onDone }) {
                 </div>
                 {s.verdict?.confidence != null ? <VerdictMeter verdict={s.verdict} /> : <Scale score={r.fusion.overall.score} interval={r.fusion.overall.interval} />}
               </div>
+              {s.verdict?.fake && <CyberBanner caseId={c.id} />}
               {r.threats?.items && Object.keys(r.threats.items).length > 0 && (
                 <div style={{ marginTop: 26 }}>
                   <h3 style={{ fontSize: 17, marginBottom: 6 }}>Threat check</h3>
