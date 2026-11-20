@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -21,11 +21,11 @@
 <body>
 <main>
   <h1>TruthLens</h1>
-  <p id="msg"><span class="spin"></span>Connecting to the analysis engine…</p>
+  <p id="msg"><span class="spin"></span>Connecting to the analysis engineâ€¦</p>
 </main>
 <script>
   // Fast engine: Cloudflare tunnel to the team's GPU laptop (kept up to date by start-truthlens.ps1).
-  const TARGET = "https://must-detect-partnership-elected.trycloudflare.com";
+  const TARGET = "https://combat-kennedy-tool-jill.trycloudflare.com";
   // Always-on backup: Hugging Face Space (CPU, slower). Empty until deployed.
   const BACKUP = "";
   const msg = document.getElementById("msg");
@@ -38,7 +38,7 @@
     .then(() => location.replace(TARGET + "/"))
     .catch(() => {
       if (BACKUP) {
-        msg.innerHTML = '<span class="spin"></span>Main server is offline. Opening the backup server (slower; may take a minute to wake up)…';
+        msg.innerHTML = '<span class="spin"></span>Main server is offline. Opening the backup server (slower; may take a minute to wake up)â€¦';
         setTimeout(() => location.replace(BACKUP + "/"), 1800);
       } else {
         msg.innerHTML = '<span class="off">The demo server is temporarily offline.</span><br>Please try again in a minute.';
